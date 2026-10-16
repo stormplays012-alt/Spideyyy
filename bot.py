@@ -136,4 +136,4 @@ async def on_error(interaction: discord.Interaction, error: app_commands.AppComm
     else:
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
-client.run(DISCORD_TOKEN)
+bot.run(TOKEN)
