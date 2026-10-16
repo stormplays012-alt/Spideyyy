@@ -125,13 +125,18 @@ class GuessGame(discord.ui.View):
             return False
         return True
 
-    @discord.ui.button(label="Guess", emoji="🕸️", style=discord.ButtonStyle.primary)
-    async def guess_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(GuessModal(self))
+     @discord.ui.button(
+    label="Guess",
+    emoji="🕸️",
+    style=discord.ButtonStyle.secondary
+)
 
-    @discord.ui.button(label="Give up", emoji="🏳️", style=discord.ButtonStyle.danger)
-    async def giveup_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await self.finish(interaction, won=False, gave_up=True)
+   @discord.ui.button(
+    label="Give up",
+    emoji="🏳️",
+    style=discord.ButtonStyle.secondary
+)
+
 
 
 class Games(commands.Cog):
