@@ -199,83 +199,140 @@ class PickView(discord.ui.View):
 
 
 # ------------------------------------------------------------------ control panel
+# ------------------------------------------------------------------
+# DROPDOWN CONTROL PANEL
+# Keeps your existing embed unchanged
+# ------------------------------------------------------------------
+
 class ControlPanel(discord.ui.View):
     def __init__(self):
-        super().__init__(timeout=None)  # persistent: survives bot restarts
+        super().__init__(timeout=None)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         cog = interaction.client.get_cog("VoiceMaster")
         channel = interaction.channel
         room = cog.store.get_room(channel.id) if cog and channel else None
+
         if room is None:
-            await _reply(interaction, "Dead Web", "This isn't an active VoiceMaster room.", DARK)
+            await _reply(
+                interaction, "Dead Web",
+                "This isn't an active VoiceMaster room.", DARK
+            )
             return False
-        if interaction.data.get("custom_id") in ("vm:claim", "vm:info"):
+
+        # Info is available to everyone; claiming requires separate checks.
+        if interaction.data.get("custom_id") == "vm:menu":
             return True
-        if room["owner"] != interaction.user.id:
-            await _reply(interaction, "Hands off my web!",
-                         "Only the room owner can use this control. 🕷️", DARK)
-            return False
+
         return True
 
-    def _cog(self, interaction):
-        return interaction.client.get_cog("VoiceMaster")
+    @discord.ui.select(
+        placeholder="🕷️ Choose a VoiceMaster action...",
+        custom_id="vm:menu",
+        min_values=1,
+        max_values=1,
+        options=[
+            discord.SelectOption(label="Rename Room", emoji="📝",
+                                 value="rename"),
+            discord.SelectOption(label="Member Limit", emoji="👥",
+                                 value="limit"),
+            discord.SelectOption(label="Room Status", emoji="🎙️",
+                                 value="status"),
+            discord.SelectOption(label="Lock / Unlock", emoji="🔒",
+                                 value="lock"),
+            discord.SelectOption(label="Hide / Show", emoji="👻",
+                                 value="hide"),
+            discord.SelectOption(label="Permit Member", emoji="✅",
+                                 value="permit"),
+            discord.SelectOption(label="Reject Member", emoji="🚫",
+                                 value="reject"),
+            discord.SelectOption(label="Kick Member", emoji="👢",
+                                 value="kick"),
+            discord.SelectOption(label="Transfer Ownership", emoji="👑",
+                                 value="transfer"),
+            discord.SelectOption(label="Claim Room", emoji="🕷️",
+                                 value="claim"),
+            discord.SelectOption(label="Room Information", emoji="ℹ️",
+                                 value="info"),
+        ],
+        row=0,
+    )
+    async def action_menu(
+        self,
+        interaction: discord.Interaction,
+        select: discord.ui.Select,
+    ):
+        cog = interaction.client.get_cog("VoiceMaster")
+        channel_id = interaction.channel.id
+        room = cog.store.get_room(channel_id)
 
-    async def _pick(self, interaction, handler, placeholder):
-        await interaction.response.send_message(
-            embed=web_embed("Pick a Member", "Choose someone from the dropdown 🕸️", DARK),
-            view=PickView(handler, interaction.channel.id, interaction.user.id, placeholder),
-            ephemeral=True,
-        )
+        if room is None:
+            return await _reply(
+                interaction, "Dead Web",
+                "This room isn't active.", DARK
+            )
 
-    # row 0
-    @discord.ui.button(label="Rename", emoji="🕸️", style=discord.ButtonStyle.primary, custom_id="vm:rename", row=0)
-    async def rename(self, interaction, button):
-        await interaction.response.send_modal(RenameModal(self._cog(interaction), interaction.channel.id))
+        action = select.values[0]
 
-    @discord.ui.button(label="Limit", emoji="👥", style=discord.ButtonStyle.primary, custom_id="vm:limit", row=0)
-    async def limit(self, interaction, button):
-        await interaction.response.send_modal(LimitModal(self._cog(interaction), interaction.channel.id))
+        # Information can be viewed by anyone.
+        if action == "info":
+            return await cog.info(interaction, channel_id)
 
-    @discord.ui.button(label="Status", emoji="📝", style=discord.ButtonStyle.primary, custom_id="vm:status", row=0)
-    async def status(self, interaction, button):
-        await interaction.response.send_modal(StatusModal(self._cog(interaction), interaction.channel.id))
+        # All other actions require the current owner.
+        if room["owner"] != interaction.user.id:
+            return await _reply(
+                interaction, "Hands off my web!",
+                "Only the room owner can use this control. 🕷️",
+                DARK,
+            )
 
-    @discord.ui.button(label="Lock", emoji="🔒", style=discord.ButtonStyle.secondary, custom_id="vm:lock", row=0)
-    async def lock(self, interaction, button):
-        await self._cog(interaction).toggle_lock(interaction, interaction.channel.id)
+        # Modals must be opened as the initial interaction response.
+        if action == "rename":
+            return await interaction.response.send_modal(
+                RenameModal(cog, channel_id)
+            )
 
-    @discord.ui.button(label="Hide", emoji="👻", style=discord.ButtonStyle.secondary, custom_id="vm:hide", row=0)
-    async def hide(self, interaction, button):
-        await self._cog(interaction).toggle_hide(interaction, interaction.channel.id)
+        if action == "limit":
+            return await interaction.response.send_modal(
+                LimitModal(cog, channel_id)
+            )
 
-    # row 1
-    @discord.ui.button(label="Permit", emoji="✅", style=discord.ButtonStyle.success, custom_id="vm:permit", row=1)
-    async def permit(self, interaction, button):
-        await self._pick(interaction, self._cog(interaction).permit, "Who can join?")
+        if action == "status":
+            return await interaction.response.send_modal(
+                StatusModal(cog, channel_id)
+            )
 
-    @discord.ui.button(label="Reject", emoji="🚫", style=discord.ButtonStyle.danger, custom_id="vm:reject", row=1)
-    async def reject(self, interaction, button):
-        await self._pick(interaction, self._cog(interaction).reject, "Who is blocked?")
+        # Other actions can use the existing methods.
+        if action == "lock":
+            return await cog.toggle_lock(interaction, channel_id)
 
-    @discord.ui.button(label="Kick", emoji="🥾", style=discord.ButtonStyle.danger, custom_id="vm:kick", row=1)
-    async def kick(self, interaction, button):
-        await self._pick(interaction, self._cog(interaction).kick, "Who gets kicked?")
+        if action == "hide":
+            return await cog.toggle_hide(interaction, channel_id)
 
-    @discord.ui.button(label="Transfer", emoji="👑", style=discord.ButtonStyle.secondary, custom_id="vm:transfer", row=1)
-    async def transfer(self, interaction, button):
-        await self._pick(interaction, self._cog(interaction).transfer, "New owner?")
+        if action == "claim":
+            return await cog.claim(interaction, channel_id)
 
-    @discord.ui.button(label="Claim", emoji="🕷️", style=discord.ButtonStyle.secondary, custom_id="vm:claim", row=1)
-    async def claim(self, interaction, button):
-        await self._cog(interaction).claim(interaction, interaction.channel.id)
+        handlers = {
+            "permit": (cog.permit, "Who can join?"),
+            "reject": (cog.reject, "Who should be blocked?"),
+            "kick": (cog.kick, "Who should be removed?"),
+            "transfer": (cog.transfer, "Choose the new owner."),
+        }
 
-    # row 2
-    @discord.ui.button(label="Info", emoji="ℹ️", style=discord.ButtonStyle.secondary, custom_id="vm:info", row=2)
-    async def info(self, interaction, button):
-        await self._cog(interaction).info(interaction, interaction.channel.id)
-
-
+        if action in handlers:
+            handler, placeholder = handlers[action]
+            return await interaction.response.send_message(
+                embed=web_embed(
+                    "Pick a Member",
+                    "Choose someone from the dropdown below. 🕸️",
+                    DARK,
+                ),
+                view=PickView(
+                    handler, channel_id,
+                    interaction.user.id, placeholder,
+                ),
+                ephemeral=True,
+            )
 # ------------------------------------------------------------------ the cog
 class VoiceMaster(commands.Cog):
     voicemaster = app_commands.Group(
