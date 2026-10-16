@@ -1,10 +1,17 @@
+
 import os
+import random
+import discord
+from discord import app_commands
+from discord.ext import commands
+
+from theme import web_embed, RED, DARK, BLUE
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 
-print("Token variable exists:", TOKEN is not None)
-print("Token length:", len(TOKEN) if TOKEN else 0)
-print("Token has whitespace:", TOKEN != TOKEN.strip() if TOKEN else False)
+if not TOKEN:
+    raise RuntimeError("DISCORD_TOKEN is missing!")
+
 # keep this secret!
 
 # ---------- THEME ----------
