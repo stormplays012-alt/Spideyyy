@@ -6,7 +6,7 @@ from discord.ext import commands
 from theme import web_embed, RED, DARK, BLUE
 
 # keep this secret!
-
+TOKEN = ("MTU2MDU0NjMzMDAzNDU2OTI0Ng.GfG__w.1wdjWhbep5VUlJkIrgOyTi9AIh5D6WReh3N02I")
 # ---------- THEME ----------
 SPIDER_FACTS = [
     "Spider silk is stronger than steel of the same thickness. 🕸️",
