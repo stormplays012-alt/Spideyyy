@@ -5,7 +5,7 @@ from discord.ext import commands
 
 from theme import web_embed, RED, DARK, BLUE
 
-TOKEN = "YOUR_TOKEN_HERE"  # keep this secret!
+# keep this secret!
 
 # ---------- THEME ----------
 SPIDER_FACTS = [
