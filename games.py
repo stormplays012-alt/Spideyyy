@@ -119,23 +119,40 @@ class GuessGame(discord.ui.View):
             await self.finish(None, won=False, timed_out=True)
 
     # ---------- buttons
+        # ---------- buttons
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.player.id:
-            await _err(interaction, f"This game belongs to {self.player.mention}. Start your own with `/guess`! 🕷️")
+            await _err(
+                interaction,
+                f"This game belongs to {self.player.mention}. "
+                "Start your own with `/guess`! 🕷️"
+            )
             return False
         return True
 
-     @discord.ui.button(
-    label="Guess",
-    emoji="🕸️",
-    style=discord.ButtonStyle.secondary
-)
+    @discord.ui.button(
+        label="Guess",
+        emoji="🕸️",
+        style=discord.ButtonStyle.secondary
+    )
+    async def guess_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+        await interaction.response.send_modal(GuessModal(self))
 
-   @discord.ui.button(
-    label="Give up",
-    emoji="🏳️",
-    style=discord.ButtonStyle.secondary
-)
+    @discord.ui.button(
+        label="Give up",
+        emoji="🏳️",
+        style=discord.ButtonStyle.secondary
+    )
+    async def giveup_button(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button
+    ):
+        await self.finish(interaction, won=False, gave_up=True)
 
 
 
