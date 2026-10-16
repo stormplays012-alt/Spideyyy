@@ -615,117 +615,144 @@ class Utility(commands.Cog):
     async def _before_giveaways(self):
         await self.bot.wait_until_ready()
 
-        # ================================================================ SPIDEY MAIL
+      
+    # ================================================================ SPIDEY MAIL
 
     @app_commands.command(
         name="mail",
-        description="Send a secret Spider-themed mail to a server member",
+        description="Send a Spider-themed mail to a server member",
     )
     @app_commands.guild_only()
     async def mail(self, interaction: discord.Interaction):
+
         class MailModal(discord.ui.Modal, title="🕷️ Friendly Neighborhood Mail"):
             message = discord.ui.TextInput(
                 label="Your web-mail message",
-                placeholder="Write your message to your fellow hero...",
+                placeholder="Write your message...",
                 style=discord.TextStyle.paragraph,
-                min_length=1,
                 max_length=1500,
                 required=True,
             )
 
-            async def on_submit(modal_self, modal_interaction: discord.Interaction):
-                recipient = modal_self.recipient
+            def __init__(self, recipient: discord.Member):
+                super().__init__()
+                self.recipient = recipient
 
-                embed = web_embed(
-                    "🕸️ You've Got Web-Mail!",
-                    str(modal_self.message),
-                    RED,
-                )
-                embed.set_author(
-                    name=f"From: {interaction.user.display_name}",
-                    icon_url=interaction.user.display_avatar.url,
-                )
-                embed.set_footer(
-                    text="🕷️ Delivered by Spidey • Your Friendly Neighborhood Bot"
+            async def on_submit(self, modal_interaction: discord.Interaction):
+                recipient = self.recipient
+
+                try:
+                    embed = web_embed(
+                        "🕸️ You've Got Web-Mail!",
+                        str(self.message),
+                        RED,
+                    )
+                    embed.set_author(
+                        name=f"From: {modal_interaction.user.display_name}",
+                        icon_url=modal_interaction.user.display_avatar.url,
+                    )
+                    embed.set_footer(
+                        text="🕷️ Delivered by Spidey • Friendly Neighborhood Bot"
+                    )
+
+                    await recipient.send(embed=embed)
+
+                except discord.Forbidden:
+                    await modal_interaction.response.send_message(
+                        "🕸️ I couldn't deliver your mail. Their DMs may be closed.",
+                        ephemeral=True,
+                    )
+                    return
+                except discord.HTTPException:
+                    await modal_interaction.response.send_message(
+                        "🕷️ Discord couldn't deliver your mail. Try again later.",
+                        ephemeral=True,
+                    )
+                    return
+
+                # Update the original /mail selection message
+                await modal_interaction.response.send_message(
+                    "🕸️ Your mail has been delivered!",
+                    ephemeral=True,
                 )
 
                 try:
-                    await recipient.send(embed=embed)
-                except discord.Forbidden:
-                    return await modal_interaction.response.send_message(
-                        "🕸️ **Web-Mail failed!** I couldn't deliver the message. "
-                        "Their DMs may be closed.",
-                        ephemeral=True,
+                    await interaction.edit_original_response(
+                        embed=web_embed(
+                            "🕸️ Your mail has been delivered!",
+                            "Your message reached its destination, friendly neighbor! 🕷️",
+                            RED,
+                        ),
+                        view=None,
                     )
                 except discord.HTTPException:
-                    return await modal_interaction.response.send_message(
-                        "🕷️ Something tangled the web! Discord couldn't deliver "
-                        "your message. Try again later.",
-                        ephemeral=True,
-                    )
-
-                await modal_interaction.response.send_message(
-                    "🕸️ **Web-Mail delivered successfully!** "
-                    "Your message has reached its destination, friendly neighbor! 🕷️",
-                    ephemeral=True,
-                )
+                    pass
 
         class RecipientView(discord.ui.View):
             def __init__(self):
                 super().__init__(timeout=120)
                 self.author_id = interaction.user.id
 
-            async def interaction_check(
-                self, view_interaction: discord.Interaction
-            ) -> bool:
-                if view_interaction.user.id != self.author_id:
-                    await view_interaction.response.send_message(
+                self.recipient_select = discord.ui.UserSelect(
+                    placeholder="🕸️ Choose your recipient",
+                    min_values=1,
+                    max_values=1,
+                )
+                self.recipient_select.callback = self.selected_recipient
+                self.add_item(self.recipient_select)
+
+            async def interaction_check(self, select_interaction: discord.Interaction):
+                if select_interaction.user.id != self.author_id:
+                    await select_interaction.response.send_message(
                         "🕷️ This web-mail panel belongs to another hero!",
                         ephemeral=True,
                     )
                     return False
                 return True
 
-            @discord.ui.select(
-                cls=discord.ui.UserSelect,
-                placeholder="🕸️ Choose your recipient",
-                min_values=1,
-                max_values=1,
-            )
-            async def recipient_select(
-                self,
-                select_interaction: discord.Interaction,
-                select: discord.ui.UserSelect,
-            ):
-                recipient = select.values[0]
+            async def selected_recipient(self, select_interaction: discord.Interaction):
+                recipient = self.recipient_select.values[0]
 
                 if recipient.id == select_interaction.user.id:
-                    return await select_interaction.response.send_message(
-                        "🕷️ You can't send web-mail to yourself!",
-                        ephemeral=True,
+                    await interaction.edit_original_response(
+                        embed=web_embed(
+                            "🕷️ Friendly Neighborhood Reminder",
+                            "You can't send a message to yourself!",
+                            RED,
+                        ),
+                        view=self,
                     )
+                    return
 
                 if recipient.bot:
-                    return await select_interaction.response.send_message(
-                        "🕸️ Web-mail is for fellow heroes, not bots!",
-                        ephemeral=True,
+                    if recipient.id == interaction.client.user.id:
+                        text = "🕸️ You can send messages to me!"
+                    else:
+                        text = "🕷️ Web-mail is for fellow heroes, not other bots!"
+
+                    await interaction.edit_original_response(
+                        embed=web_embed("🕷️ Spidey Says...", text, RED),
+                        view=self,
                     )
+                    return
 
                 if not isinstance(recipient, discord.Member):
-                    return await select_interaction.response.send_message(
-                        "🕷️ Please select a member of this server.",
-                        ephemeral=True,
+                    await interaction.edit_original_response(
+                        embed=web_embed(
+                            "🕷️ Web-Mail",
+                            "Please select a member of this server.",
+                            RED,
+                        ),
+                        view=self,
                     )
+                    return
 
-                modal = MailModal()
-                modal.recipient = recipient
-                await select_interaction.response.send_modal(modal)
+                await select_interaction.response.send_modal(MailModal(recipient))
 
         await interaction.response.send_message(
             embed=web_embed(
                 "🕷️ Spidey Web-Mail",
-                "Choose a server member below, then write your message "
-                "in the private popup. I'll deliver it straight to their DMs! 🕸️",
+                "Choose a server member to send them a private web-mail! 🕸️",
                 RED,
             ),
             view=RecipientView(),
