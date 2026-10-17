@@ -31,10 +31,12 @@
 - Run /setlogchannel to get a log of every mod action (case system).
 - Utility:      (see /help)
   serverinfo, whois, roleinfo, channelinfo, membercount, banner, servericon,
-  emojis, roles, botinfo, uptime, invite, calc, choose, roll, coinflip, color,
+  emojis, roles, botinfo, uptime, invite, calc, choose, roll, color,
   timestamp, snowflake, password, base64, say, embed, poll, suggest,
   setsuggestchannel, remind, reminders, delreminder, afk, todo, giveaway
 
+- Economy:      /balance /daily /work /give /shop /buy /inventory /richest, /webs ..., /ecoadmin ...
+- Casino:       /coinflip /slots /blackjack /mines, /casino hilo|roulette|dice|rps
 - Games:        /guess  (number guessing game, 1-100)
 - AutoMod:      /automod status  (everything starts OFF)
   /automod toggle <module|all> on/off

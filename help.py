@@ -12,6 +12,8 @@ CATEGORIES = {
     "AutoMod":     ("🤖", "AutoMod", "Automatic spam, link and word protection"),
     "Utility":     ("🧰", "Utility", "Info, tools, polls, reminders, giveaways"),
     "Games":       ("🎮", "Games", "Play with Spidey"),
+    "Economy":     ("💰", "Economy", "Webs, daily, give, shop, rob"),
+    "Casino":      ("🎰", "Casino", "Bet webs: slots, mines, blackjack, more"),
     "VoiceMaster": ("🎙️", "VoiceMaster", "Join-to-create voice rooms"),
     "Leveling":    ("⭐", "Leveling", "XP, ranks and leaderboards"),
     "Welcome":     ("👋", "Welcome", "Welcome messages, auto-roles, verification"),

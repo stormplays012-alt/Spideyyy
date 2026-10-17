@@ -261,11 +261,6 @@ class Utility(commands.Cog):
         await interaction.response.send_message(embed=web_embed(
             "Dice Rolled!", f"🎲 {', '.join(map(str, rolls))}\n**Total:** {sum(rolls)}", BLUE))
 
-    @app_commands.command(name="coinflip", description="Flip a coin")
-    async def coinflip(self, interaction: discord.Interaction):
-        await interaction.response.send_message(embed=web_embed(
-            "Coin Flip!", f"🪙 **{random.choice(['Heads', 'Tails'])}**", BLUE))
-
     @app_commands.command(name="color", description="Preview a hex color")
     @app_commands.describe(hex_code="e.g. #E62429")
     async def color(self, interaction: discord.Interaction, hex_code: str):
