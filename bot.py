@@ -46,8 +46,6 @@ class Spidey(commands.Bot):
         await self.load_extension("games")        # 🎮 Games
         await self.load_extension("automod")      # 🤖 AutoMod
         await self.load_extension("help")         # 📖 Help (dropdown)
-        await self.load_extension("casino")       # 🎰 Casino
-        await self.load_extension("economy")      # 💰 Economy
         
         await self.tree.sync()
 
