@@ -1,4 +1,5 @@
 import json
+import copy
 import math
 import os
 import random
@@ -96,12 +97,24 @@ class Economy(commands.Cog):
         self.bot = bot
         self.data = {"guilds": {}}
         self.dirty = False
+        loaded = {}
         if os.path.exists(DATA_FILE):
             try:
                 with open(DATA_FILE, "r", encoding="utf-8") as f:
-                    self.data.update(json.load(f))
+                    loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    self.data.update(loaded)
             except (OSError, json.JSONDecodeError):
                 pass
+
+        # One-time migration: old versions stored each member inside each guild.
+        # Keep the complete account with the highest net worth (wallet + bank).
+        if isinstance(loaded, dict) and isinstance(loaded.get("users"), dict):
+            self.data["users"] = loaded["users"]
+        else:
+            self.data["users"] = self._migrate_global_users()
+            self.dirty = True
+        self.data.setdefault("guilds", {})
         self.save_loop.start()
 
     def cog_unload(self):
@@ -125,15 +138,52 @@ class Economy(commands.Cog):
     async def _wait(self):
         await self.bot.wait_until_ready()
 
+    def _migrate_global_users(self) -> dict:
+        """Choose each member's highest-value legacy account across all guilds."""
+        chosen = {}
+        for guild_data in self.data.get("guilds", {}).values():
+            if not isinstance(guild_data, dict):
+                continue
+            users = guild_data.get("users", {})
+            if not isinstance(users, dict):
+                continue
+            for uid, account in users.items():
+                if not isinstance(account, dict):
+                    continue
+                try:
+                    value = int(account.get("webs", START_WEBS)) + int(account.get("bank", 0))
+                    wallet = int(account.get("webs", START_WEBS))
+                except (TypeError, ValueError):
+                    value, wallet = START_WEBS, START_WEBS
+                current = chosen.get(str(uid))
+                # Prefer the largest wallet balance; break ties by net worth.
+                if current is None or (wallet, value) > (current[1], current[0]):
+                    chosen[str(uid)] = (value, wallet, copy.deepcopy(account))
+
+        users = {}
+        defaults = new_user()
+        for uid, (_, __, account) in chosen.items():
+            for key, value in defaults.items():
+                account.setdefault(key, copy.deepcopy(value))
+            if not isinstance(account.get("stats"), dict):
+                account["stats"] = copy.deepcopy(defaults["stats"])
+            else:
+                for key, value in defaults["stats"].items():
+                    account["stats"].setdefault(key, value)
+            users[uid] = account
+        return users
+
     def _guild(self, gid: int) -> dict:
+        # Shop configuration remains server-specific; balances do not.
         g = self.data["guilds"].setdefault(str(gid), {})
-        g.setdefault("users", {})
+        g.setdefault("users", {})  # retained only for legacy data compatibility
         g.setdefault("shop", {})
         return g
 
     # ---------- API used by the casino cog
     def user(self, gid: int, uid: int) -> dict:
-        users = self._guild(gid)["users"]
+        # gid is retained in the API for compatibility with existing commands/casino.py.
+        users = self.data.setdefault("users", {})
         u = users.setdefault(str(uid), new_user())
         for k, v in new_user().items():       # fill any missing keys
             u.setdefault(k, v)
@@ -211,7 +261,7 @@ class Economy(commands.Cog):
             return await fail(interaction, "Bots don't have webs. 🕷️")
         gid = interaction.guild.id
         u = self.user(gid, member.id)
-        board = sorted(self._guild(gid)["users"].items(), key=lambda kv: self.net_worth(kv[1]), reverse=True)
+        board = sorted(self.data["users"].items(), key=lambda kv: self.net_worth(kv[1]), reverse=True)
         pos = next((i for i, (uid, _) in enumerate(board, 1) if uid == str(member.id)), 0)
         s = u["stats"]
         desc = (f"{EMOJI} **Wallet:** {u['webs']:,}\n🏦 **Bank:** {u['bank']:,}\n"
@@ -275,16 +325,16 @@ class Economy(commands.Cog):
             "Webs Shared!", f"{interaction.user.mention} gave **{value:,}** webs {EMOJI} to {member.mention}! 🕷️\n"
                             f"💰 **Your wallet:** {self.wallet(gid, interaction.user.id):,}", BLUE))
 
-    @app_commands.command(name="richest", description="The richest heroes in this server")
+    @app_commands.command(name="richest", description="The richest heroes across Spidey servers")
     @app_commands.guild_only()
     async def richest(self, interaction: discord.Interaction):
-        board = sorted(self._guild(interaction.guild.id)["users"].items(),
+        board = sorted(self.data["users"].items(),
                        key=lambda kv: self.net_worth(kv[1]), reverse=True)[:10]
         medals = ["🥇", "🥈", "🥉"]
         lines = [f"{medals[i] if i < 3 else f'**{i + 1}.**'} <@{uid}> — **{self.net_worth(u):,}** webs"
                  for i, (uid, u) in enumerate(board)]
         await interaction.response.send_message(embed=web_embed(
-            "Richest in the Web", "\n".join(lines) or "Nobody has webs yet. 🕸️", BLUE))
+            "Richest Across the Web", "\n".join(lines) or "Nobody has webs yet. 🕸️", BLUE))
 
     # ================================================================ /webs ...
     @webs.command(name="weekly", description="Claim your weekly webs")
@@ -475,7 +525,7 @@ class Economy(commands.Cog):
 
     @ecoadmin.command(name="reset", description="Reset a member's economy data")
     async def admin_reset(self, interaction: discord.Interaction, member: discord.Member):
-        self._guild(interaction.guild.id)["users"].pop(str(member.id), None)
+        self.data.setdefault("users", {}).pop(str(member.id), None)
         self.dirty = True
         await interaction.response.send_message(embed=web_embed(
             "Reset!", f"{member.mention}'s economy data was wiped.", DARK))

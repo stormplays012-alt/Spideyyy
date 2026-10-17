@@ -134,7 +134,7 @@ class BlackjackView(discord.ui.View):
             item.disabled = True
         payout = {"blackjack": int(self.bet * 2.5), "win": self.bet * 2, "push": self.bet}.get(outcome, 0)
         payout, profit, note = self.cog.settle(*self.key, self.bet, payout)
-        self.cog.busy.discard(self.key)
+        self.cog.busy.discard(self.user.id)
         self.stop()
         embed = self.embed(outcome, payout, profit, note)
         if interaction is not None:
@@ -255,7 +255,7 @@ class MinesView(discord.ui.View):
         self.finished = True
         payout = self.potential if won else 0
         payout, profit, note = self.cog.settle(*self.key, self.bet, payout)
-        self.cog.busy.discard(self.key)
+        self.cog.busy.discard(self.user.id)
         self.reveal_all()
         self.stop()
         sign = f"+{profit:,}" if profit > 0 else f"{profit:,}"
@@ -300,7 +300,7 @@ class MinesView(discord.ui.View):
     async def _refund(self):
         self.finished = True
         self.cog.eco.add(*self.key, self.bet)
-        self.cog.busy.discard(self.key)
+        self.cog.busy.discard(self.user.id)
         self.reveal_all()
         if self.message is not None:
             try:
@@ -359,7 +359,7 @@ class HiLoView(discord.ui.View):
             return
         self.finished = True
         payout, profit, note = self.cog.settle(*self.key, self.bet, self.potential if won else 0)
-        self.cog.busy.discard(self.key)
+        self.cog.busy.discard(self.user.id)
         for item in self.children:
             item.disabled = True
         self.stop()
@@ -405,7 +405,7 @@ class HiLoView(discord.ui.View):
             else:
                 self.finished = True
                 self.cog.eco.add(*self.key, self.bet)
-                self.cog.busy.discard(self.key)
+                self.cog.busy.discard(self.user.id)
                 for item in self.children:
                     item.disabled = True
                 if self.message is not None:
@@ -434,7 +434,7 @@ class Casino(commands.Cog):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.busy: set[tuple[int, int]] = set()
+        self.busy: set[int] = set()
 
     @property
     def eco(self):
@@ -448,7 +448,7 @@ class Casino(commands.Cog):
             await fail(interaction, "The economy isn't loaded right now.")
             return None
         gid, uid = interaction.guild.id, interaction.user.id
-        if (gid, uid) in self.busy:
+        if uid in self.busy:
             await fail(interaction, "You already have a game running! Finish it first. 🕷️")
             return None
         wallet = eco.wallet(gid, uid)
@@ -467,13 +467,13 @@ class Casino(commands.Cog):
         if not eco.take(gid, uid, amount):
             await fail(interaction, f"You only have **{wallet:,}** webs in your wallet. 🕸️")
             return None
-        self.busy.add((gid, uid))
+        self.busy.add(uid)
         return amount
 
     def abort(self, gid: int, uid: int, amount: int):
         """Give the bet back (used if Discord fails before the game starts)."""
         self.eco.add(gid, uid, amount)
-        self.busy.discard((gid, uid))
+        self.busy.discard(uid)
 
     def settle(self, gid: int, uid: int, bet: int, payout: int):
         """Pay out `payout` (total returned, 0 = lost). Returns (payout, profit, note)."""
@@ -512,7 +512,7 @@ class Casino(commands.Cog):
         result = random.choice(["heads", "tails"])
         won = result == side.value
         payout, profit, note = self.settle(gid, uid, amount, amount * 2 if won else 0)
-        self.busy.discard((gid, uid))
+        self.busy.discard(uid)
         await asyncio.sleep(1.5)
         body = f"The coin landed on **{result.title()}** {'🪙' if won else '💨'}"
         await interaction.edit_original_response(embed=self.result_embed("Coin Flip", body, profit, gid, uid, note))
@@ -535,7 +535,7 @@ class Casino(commands.Cog):
             return self.abort(gid, uid, amount)
         reels = random.choices(SLOT_SYMBOLS, SLOT_WEIGHTS, k=3)
         payout, profit, note = self.settle(gid, uid, amount, slot_payout(reels, amount))
-        self.busy.discard((gid, uid))
+        self.busy.discard(uid)
 
         shown = ["❓", "❓", "❓"]
         for i in range(3):
@@ -625,7 +625,7 @@ class Casino(commands.Cog):
         n = random.randint(0, 36)
         won, mult = roulette_result(choice, n)
         payout, profit, note = self.settle(gid, uid, amount, amount * mult if won else 0)
-        self.busy.discard((gid, uid))
+        self.busy.discard(uid)
         await asyncio.sleep(2)
         body = f"The ball landed on {roulette_color(n)} **{n}**."
         await interaction.edit_original_response(embed=self.result_embed("Web Roulette", body, profit, gid, uid, note))
@@ -653,7 +653,7 @@ class Casino(commands.Cog):
         a, b = sum(mine), sum(theirs)
         payout = int(amount * 1.9) if a > b else (amount if a == b else 0)
         payout, profit, note = self.settle(gid, uid, amount, payout)
-        self.busy.discard((gid, uid))
+        self.busy.discard(uid)
         await asyncio.sleep(1.2)
         verdict = "You win! Pays 1.9x." if a > b else ("A tie." if a == b else "Spidey wins.")
         body = f"🎲 **You:** {mine[0]} + {mine[1]} = **{a}**\n🕷️ **Spidey:** {theirs[0]} + {theirs[1]} = **{b}**\n{verdict}"
@@ -680,7 +680,7 @@ class Casino(commands.Cog):
         else:
             payout, verdict = 0, "Spidey wins."
         payout, profit, note = self.settle(gid, uid, amount, payout)
-        self.busy.discard((gid, uid))
+        self.busy.discard(uid)
         body = f"You: {emojis[choice.value]} **{choice.value}**\nSpidey: {emojis[spidey]} **{spidey}**\n{verdict}"
         await interaction.response.send_message(embed=self.result_embed("Rock Paper Scissors", body, profit, gid, uid, note))
 
