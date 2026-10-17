@@ -21,14 +21,15 @@
   should moderate, otherwise kick/ban/mute/role commands will fail.
 
 ## Features
+- Help:         /help  (one dropdown menu with every category, updates itself)
 - VoiceMaster:  /voicemaster setup  (join-to-create rooms + control panel)
-- Moderation:   /modhelp  lists everything
+- Moderation:   (see /help)
   kick, ban, tempban, softban, unban, banlist, mute, unmute, warn, warnings,
   delwarn, clearwarnings, modlogs, case, setlogchannel, purge, slowmode, lock,
   unlock, lockdown, unlockdown, nick, addrole, removerole, userinfo,
   vcmute, vcunmute, vcdeafen, vcundeafen, vckick, vcmove
 - Run /setlogchannel to get a log of every mod action (case system).
-- Utility:      /utilhelp  lists everything
+- Utility:      (see /help)
   serverinfo, whois, roleinfo, channelinfo, membercount, banner, servericon,
   emojis, roles, botinfo, uptime, invite, calc, choose, roll, coinflip, color,
   timestamp, snowflake, password, base64, say, embed, poll, suggest,

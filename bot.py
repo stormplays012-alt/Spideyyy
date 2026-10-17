@@ -45,6 +45,7 @@ class Spidey(commands.Bot):
         await self.load_extension("utility")      # 🧰 Utility
         await self.load_extension("games")        # 🎮 Games
         await self.load_extension("automod")      # 🤖 AutoMod
+        await self.load_extension("help")         # 📖 Help (dropdown)
         await self.tree.sync()
 
 client = Spidey()
@@ -81,22 +82,6 @@ async def ping(interaction: discord.Interaction):
     await interaction.response.send_message(
         embed=web_embed("Web Vibration", f"My web is vibrating at **{ms}ms** 🕸️⚡")
     )
-
-
-@tree.command(name="help", description="See what Spidey can do")
-async def help_cmd(interaction: discord.Interaction):
-    desc = (
-        "🕸️ `/ping` — Check the web vibrations\n"
-        "🕷️ `/fact` — Learn a spider fact\n"
-        "🕸️ `/swing` — Swing at someone\n"
-        "🕷️ `/avatar` — Grab someone's profile pic\n"
-        "🛡️ `/modhelp` — All moderation commands (mods only)\n"
-        "🧰 `/utilhelp` — All utility commands\n"
-        "🎮 `/guess` — Number guessing game (1-100)\n"
-        "🤖 `/automod status` — AutoMod settings (admins)\n"
-        "🎙️ `/voicemaster setup` — Join-to-create voice rooms (admins)\n"
-    )
-    await interaction.response.send_message(embed=web_embed("Spidey's Web Guide", desc, DARK))
 
 
 @tree.command(name="fact", description="Get a random spider fact")

@@ -657,26 +657,6 @@ class Moderation(commands.Cog):
         await self._voice_action(interaction, member, "Web Swing!",
                                  f"Moved {member.mention} to {channel.mention} 🕷️", voice_channel=channel)
 
-    # ================================================================ HELP
-    @app_commands.command(name="modhelp", description="List all moderation commands")
-    @mod_perms(moderate_members=True)
-    async def modhelp(self, interaction: discord.Interaction):
-        desc = (
-            "**🔨 Punish**\n"
-            "`/kick` `/ban` `/tempban` `/softban` `/unban` `/banlist`\n"
-            "`/mute` `/unmute`\n\n"
-            "**⚠️ Warnings & cases**\n"
-            "`/warn` `/warnings` `/delwarn` `/clearwarnings`\n"
-            "`/modlogs` `/case` `/setlogchannel`\n\n"
-            "**🧹 Channels**\n"
-            "`/purge` `/slowmode` `/lock` `/unlock` `/lockdown` `/unlockdown`\n\n"
-            "**👤 Members**\n"
-            "`/nick` `/addrole` `/removerole` `/userinfo`\n\n"
-            "**🎙️ Voice**\n"
-            "`/vcmute` `/vcunmute` `/vcdeafen` `/vcundeafen` `/vckick` `/vcmove`"
-        )
-        await interaction.response.send_message(embed=web_embed("Spidey's Moderation Web", desc, DARK), ephemeral=True)
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Moderation(bot))

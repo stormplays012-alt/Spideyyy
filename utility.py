@@ -759,21 +759,6 @@ class Utility(commands.Cog):
             ephemeral=True,
         )
 
-    # ================================================================ HELP
-    @app_commands.command(name="utilhelp", description="List all utility commands")
-    async def utilhelp(self, interaction: discord.Interaction):
-        desc = (
-            "**ℹ️ Info**\n`/serverinfo` `/whois` `/roleinfo` `/channelinfo` `/membercount`\n"
-            "`/banner` `/servericon` `/emojis` `/roles` `/botinfo` `/uptime` `/invite`\n\n"
-            "**🧰 Tools**\n`/calc` `/choose` `/roll` `/coinflip` `/color` `/timestamp`\n"
-            "`/snowflake` `/password` `/base64`\n\n"
-            "**📣 Sending** (mods)\n`/say` `/embed`\n\n"
-            "**🗳️ Polls & ideas**\n`/poll` `/suggest` `/setsuggestchannel`\n\n"
-            "**⏰ Personal**\n`/remind` `/reminders` `/delreminder` `/afk`\n`/todo add|list|done|clear`\n\n"
-            "**🎉 Giveaways** (mods)\n`/giveaway start|end|reroll`"
-        )
-        await interaction.response.send_message(embed=web_embed("Spidey's Utility Web", desc, DARK), ephemeral=True)
-
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(Utility(bot))
