@@ -87,8 +87,7 @@ def new_user() -> dict:
 # ------------------------------------------------------------------ cog
 class Economy(commands.Cog):
     ecoadmin = app_commands.Group(
-        name="ecoadmin", description="Manage the web economy", guild_only=True,
-        default_permissions=discord.Permissions(manage_guild=True))
+        name="ecoadmin", description="Bot owner only: manage the web economy", guild_only=True)
     webs = app_commands.Group(
         name="webs", description="More web-economy commands: weekly, deposit, withdraw, rob, use",
         guild_only=True)
@@ -509,31 +508,47 @@ class Economy(commands.Cog):
         await interaction.response.send_message(embed=embed)
 
     # ================================================================ ADMIN
-    @ecoadmin.command(name="add", description="Give webs to a member (free money)")
-    async def admin_add(self, interaction: discord.Interaction, member: discord.Member,
-                        amount: app_commands.Range[int, 1, 100_000_000]):
+    async def _owner_only(self, interaction: discord.Interaction) -> bool:
+        """Webs are shared across every server, so only Spidey's creator may print or delete them."""
+        if await self.bot.is_owner(interaction.user):
+            return True
+        await fail(interaction, "`/ecoadmin` is only for Spidey's creator. "
+                                "This keeps the economy fair for everyone. 🕷️")
+        return False
+
+    @ecoadmin.command(name="give", description="Bot owner only: give webs to a member")
+    async def admin_give(self, interaction: discord.Interaction, member: discord.Member,
+                         amount: app_commands.Range[int, 1, 100_000_000]):
+        if not await self._owner_only(interaction):
+            return
         self.add(interaction.guild.id, member.id, amount)
         await interaction.response.send_message(embed=web_embed(
-            "Webs Added!", f"Added **{amount:,}** webs to {member.mention}.", BLUE))
+            "Webs Given!", f"Gave **{amount:,}** webs to {member.mention}.", BLUE))
 
-    @ecoadmin.command(name="remove", description="Remove webs from a member")
-    async def admin_remove(self, interaction: discord.Interaction, member: discord.Member,
-                           amount: app_commands.Range[int, 1, 100_000_000]):
+    @ecoadmin.command(name="take", description="Bot owner only: take webs from a member")
+    async def admin_take(self, interaction: discord.Interaction, member: discord.Member,
+                         amount: app_commands.Range[int, 1, 100_000_000]):
+        if not await self._owner_only(interaction):
+            return
         self.add(interaction.guild.id, member.id, -amount)
         await interaction.response.send_message(embed=web_embed(
-            "Webs Removed!", f"Removed up to **{amount:,}** webs from {member.mention}.", DARK))
+            "Webs Taken!", f"Took up to **{amount:,}** webs from {member.mention}.", DARK))
 
-    @ecoadmin.command(name="reset", description="Reset a member's economy data")
+    @ecoadmin.command(name="reset", description="Bot owner only: reset a member's economy data")
     async def admin_reset(self, interaction: discord.Interaction, member: discord.Member):
+        if not await self._owner_only(interaction):
+            return
         self.data.setdefault("users", {}).pop(str(member.id), None)
         self.dirty = True
         await interaction.response.send_message(embed=web_embed(
             "Reset!", f"{member.mention}'s economy data was wiped.", DARK))
 
-    @ecoadmin.command(name="addrole", description="Sell a role in the shop")
+    @ecoadmin.command(name="addrole", description="Bot owner only: sell a role in the shop")
     @app_commands.describe(role="Role to sell", price="Price in webs", description="Short description")
     async def admin_addrole(self, interaction: discord.Interaction, role: discord.Role,
                             price: app_commands.Range[int, 1, 100_000_000], description: Optional[str] = None):
+        if not await self._owner_only(interaction):
+            return
         if role.managed or role.is_default():
             return await fail(interaction, "I can't hand out that role.")
         if role >= interaction.guild.me.top_role:
@@ -546,8 +561,10 @@ class Economy(commands.Cog):
         await interaction.response.send_message(embed=web_embed(
             "Role Added to Shop!", f"{role.mention} now costs **{price:,}** webs.", BLUE))
 
-    @ecoadmin.command(name="removeitem", description="Remove a role from the shop")
+    @ecoadmin.command(name="removeitem", description="Bot owner only: remove a role from the shop")
     async def admin_removeitem(self, interaction: discord.Interaction, item: str):
+        if not await self._owner_only(interaction):
+            return
         if self._guild(interaction.guild.id)["shop"].pop(item, None) is None:
             return await fail(interaction, "That's not a custom shop item (built-in items can't be removed).")
         self.dirty = True
