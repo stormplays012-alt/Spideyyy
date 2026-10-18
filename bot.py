@@ -41,7 +41,6 @@ class Spidey(commands.Bot):
         await self.load_extension("help")         # 📖 Help (dropdown)
         await self.load_extension("economy")      # 💰 Economy (webs, shop)
         await self.load_extension("casino")       # 🎰 Casino (games)
-        await self.load_extension("actions")      # 🤗 Actions (/action)
         await self.load_extension("leveling")     # ⭐ Leveling (XP, ranks)
         await self.load_extension("welcome")      # 👋 Welcome & verification
         await self.load_extension("tickets")      # 🎫 Tickets
