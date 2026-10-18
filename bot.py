@@ -23,13 +23,6 @@ SPIDER_FACTS = [
     "A spider's web can be recycled: many spiders eat their old web. 🕸️",
 ]
 
-WELCOME_LINES = [
-    "A new friend got caught in the web! 🕸️",
-    "My spider-sense was tingling… you've arrived! 🕷️",
-    "Welcome to the neighborhood, web-slinger! 🕷️",
-]
-
-
 # ---------- BOT SETUP ----------
 intents = discord.Intents.default()
 intents.members = True  # needed for welcome messages (enable in Dev Portal too)
@@ -48,6 +41,11 @@ class Spidey(commands.Bot):
         await self.load_extension("help")         # 📖 Help (dropdown)
         await self.load_extension("economy")      # 💰 Economy (webs, shop)
         await self.load_extension("casino")       # 🎰 Casino (games)
+        await self.load_extension("actions")      # 🤗 Actions (/action)
+        await self.load_extension("leveling")     # ⭐ Leveling (XP, ranks)
+        await self.load_extension("welcome")      # 👋 Welcome & verification
+        await self.load_extension("tickets")      # 🎫 Tickets
+        await self.load_extension("minigames")    # 🎲 Mini-games (/game)
         
         await self.tree.sync()
 
@@ -63,19 +61,6 @@ async def on_ready():
         )
     )
     print(f"🕷️ Spidey is swinging as {client.user}")
-
-
-@client.event
-async def on_member_join(member: discord.Member):
-    channel = member.guild.system_channel
-    if channel:
-        embed = web_embed(
-            "New Arrival!",
-            f"{random.choice(WELCOME_LINES)}\n\nWelcome, {member.mention}!",
-            BLUE,
-        )
-        embed.set_thumbnail(url=member.display_avatar.url)
-        await channel.send(embed=embed)
 
 
 # ---------- COMMANDS ----------
@@ -120,6 +105,8 @@ async def on_error(interaction: discord.Interaction, error: app_commands.AppComm
         text = "You don't have the permissions for that. 🕷️"
     elif isinstance(error, app_commands.BotMissingPermissions):
         text = "I'm missing permissions: " + ", ".join(error.missing_permissions)
+    elif isinstance(error, app_commands.CommandOnCooldown):
+        text = f"Slow down! Try again in {error.retry_after:.0f}s. 🕸️"
     elif isinstance(error, app_commands.CheckFailure):
         text = "You can't use that here. 🕸️"
     else:

@@ -14,6 +14,8 @@ CATEGORIES = {
     "Games":       ("🎮", "Games", "Play with Spidey"),
     "Economy":     ("💰", "Economy", "Webs, daily, give, shop, rob"),
     "Casino":      ("🎰", "Casino", "Bet webs: slots, mines, blackjack, more"),
+    "Actions":     ("🤗", "Actions", "Hug, slap, dance and 40+ more"),
+    "MiniGames":   ("🎲", "Mini-games", "Trivia, hangman, tic-tac-toe, connect four"),
     "VoiceMaster": ("🎙️", "VoiceMaster", "Join-to-create voice rooms"),
     "Leveling":    ("⭐", "Leveling", "XP, ranks and leaderboards"),
     "Welcome":     ("👋", "Welcome", "Welcome messages, auto-roles, verification"),
