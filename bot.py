@@ -65,7 +65,7 @@ async def on_ready():
 # ---------- COMMANDS ----------
 @tree.command(name="ping", description="Check how fast the web is vibrating")
 async def ping(interaction: discord.Interaction):
-    ms = ("2ms")
+    ms = ("2")
     await interaction.response.send_message(
         embed=web_embed("Web Vibration", f"My web is vibrating at **{ms}ms** 🕸️⚡")
     )
