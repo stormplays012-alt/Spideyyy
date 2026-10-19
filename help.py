@@ -14,7 +14,6 @@ CATEGORIES = {
     "Economy":     ("💰", "Economy", "Webs, daily, give, shop, rob"),
     "Casino":      ("🎰", "Casino", "Bet webs: slots, mines, blackjack, more"),
     "Actions":     ("🤗", "Actions", "Hug, slap, punch, dance and 40+ more with GIFs"),
-    "Music":       ("🎵", "Music", "Play songs in voice with a control panel"),
     "MiniGames":   ("🎲", "Mini-games", "Guess, trivia, hangman, tic-tac-toe, connect four"),
     "VoiceMaster": ("🎙️", "VoiceMaster", "Join-to-create voice rooms"),
     "Leveling":    ("⭐", "Leveling", "XP, ranks and leaderboards"),

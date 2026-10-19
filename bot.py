@@ -45,10 +45,6 @@ class Spidey(commands.Bot):
         await self.load_extension("tickets")      # 🎫 Tickets
         await self.load_extension("minigames")    # 🎲 Mini-games (/game, /guess)
         await self.load_extension("actions")      # 🤗 Actions (/hug /slap /punch /dance /action)
-        try:
-            await self.load_extension("music")    # 🎵 Music (/music ...)
-        except Exception as e:                    # missing yt-dlp / PyNaCl must not stop the whole bot
-            print(f"⚠️  Music could not load: {e}")
         
         await self.tree.sync()
 
