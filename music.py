@@ -14,6 +14,7 @@ Supports YouTube search, YouTube / SoundCloud / Bandcamp etc. links and YouTube 
 Spotify links are not supported (Spotify does not allow audio streaming), so type the song name instead.
 """
 import asyncio
+import os
 import random
 import re
 import shutil
@@ -42,6 +43,8 @@ ALONE_TIMEOUT = 60           # seconds alone in the channel before leaving
 PAGE_SIZE = 10
 STREAM_TTL = 600             # a resolved stream link is reused for 10 minutes at most
 
+COOKIE_FILE = os.getenv("YTDL_COOKIES", "cookies.txt")     # optional: exported browser cookies (see README)
+JS_RUNTIMES = {"deno": "deno", "node": "node", "bun": "bun", "quickjs": "qjs"}   # yt-dlp name -> program name
 YTDL_SEARCH_OPTS = {
     "quiet": True, "no_warnings": True, "skip_download": True, "extract_flat": "in_playlist",
     "noplaylist": False, "socket_timeout": 15, "cachedir": False, "source_address": "0.0.0.0",
@@ -50,6 +53,44 @@ YTDL_STREAM_OPTS = {
     "format": "bestaudio/best", "quiet": True, "no_warnings": True, "skip_download": True,
     "noplaylist": True, "socket_timeout": 15, "cachedir": False, "source_address": "0.0.0.0",
 }
+
+
+def found_js_runtimes() -> list[str]:
+    return [name for name, prog in JS_RUNTIMES.items() if shutil.which(prog)]
+
+
+def build_opts(base: dict, with_js: bool = True) -> dict:
+    """YouTube now needs a JavaScript runtime for yt-dlp; hand it whichever one this machine has."""
+    opts = dict(base)
+    if os.path.exists(COOKIE_FILE):
+        opts["cookiefile"] = COOKIE_FILE
+    if with_js:
+        runtimes = found_js_runtimes()
+        if runtimes:
+            opts["js_runtimes"] = {name: {} for name in runtimes}
+        opts["remote_components"] = ["ejs:github"]
+    return opts
+
+
+def friendly_error(e: Exception) -> str:
+    """Turn a scary traceback into something a server owner can act on."""
+    text = str(e)
+    low = text.lower()
+    if "ffmpeg" in low and ("not found" in low or "no such file" in low):
+        return "FFmpeg is not installed on the machine that runs me. See the README (Music needs FFmpeg)."
+    if "sign in to confirm" in low or "not a bot" in low or "cookies" in low:
+        return ("YouTube is blocking this server's IP (common on hosting sites). Add a `cookies.txt` "
+                "file next to bot.py (see README), or try a SoundCloud link.")
+    if "javascript" in low or "n challenge" in low or "js runtime" in low or "ejs" in low:
+        return "yt-dlp needs a JavaScript runtime (Node.js or Deno) installed. See the README."
+    if "not available" in low or "unavailable" in low or "private video" in low:
+        return "That video isn't available (private, removed, or region-locked)."
+    if "timeout" in low or "timed out" in low:
+        return "The request timed out. Try again."
+    text = re.sub(r"\x1b\[[0-9;]*m", "", text).replace("ERROR:", "").strip()
+    return (text[:200] + "…") if len(text) > 200 else (text or type(e).__name__)
+
+
 FFMPEG_OPTS = {
     "before_options": "-nostdin -reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
     "options": "-vn",
@@ -278,7 +319,7 @@ class GuildPlayer:
                     source = await self.cog.make_source(track, self.volume / 100)
                 except Exception as e:
                     print(f"[music] could not load {track.webpage_url}: {e!r}")
-                    await self.say(f"⚠️ I couldn't load **{clean(track.title, 60)}** (it may be blocked or removed). Skipping it.")
+                    await self.say(f"⚠️ I couldn't play **{clean(track.title, 60)}**.\n**Why:** {friendly_error(e)}")
                     continue
 
                 self.current, self.skipped = track, False
@@ -451,9 +492,15 @@ class Music(commands.Cog):
             raise RuntimeError("yt-dlp is not installed. Run: pip install -r requirements.txt")
         if not discord.voice_client.has_nacl:
             raise RuntimeError("PyNaCl is not installed (needed for voice). Run: pip install -r requirements.txt")
+        problems = []
         if shutil.which("ffmpeg") is None:
-            print("⚠️  [music] FFmpeg was not found on this machine. Install it or music will not play. "
-                  "(see README)")
+            problems.append("FFmpeg was not found (install it, see README)")
+        if not found_js_runtimes():
+            problems.append("no JavaScript runtime (Node.js or Deno) found, YouTube will likely fail (see README)")
+        print(f"🎵 [music] yt-dlp {yt_dlp.version.__version__} | JS runtimes: {found_js_runtimes() or 'none'} | "
+              f"cookies: {'yes' if os.path.exists(COOKIE_FILE) else 'no'}")
+        for p in problems:
+            print(f"⚠️  [music] {p}")
 
     async def cog_unload(self):
         for player in list(self.players.values()):
@@ -477,11 +524,20 @@ class Music(commands.Cog):
             "stream_url": e.get("url") if single and e.get("formats") else None,
         }
 
+    @staticmethod
+    def _ydl_extract(base_opts: dict, target: str):
+        try:
+            with yt_dlp.YoutubeDL(build_opts(base_opts)) as ydl:
+                return ydl.extract_info(target, download=False)
+        except (TypeError, AttributeError, KeyError, ValueError):
+            # the JS-runtime options were not understood by this yt-dlp version: retry without them
+            with yt_dlp.YoutubeDL(build_opts(base_opts, with_js=False)) as ydl:
+                return ydl.extract_info(target, download=False)
+
     def _extract_sync(self, query: str) -> list[dict]:
         if not URL_RE.match(query):
             query = f"ytsearch1:{query}"
-        with yt_dlp.YoutubeDL(YTDL_SEARCH_OPTS) as ydl:
-            info = ydl.extract_info(query, download=False)
+        info = self._ydl_extract(YTDL_SEARCH_OPTS, query)
         if not info:
             return []
         entries = info.get("entries")
@@ -490,8 +546,7 @@ class Music(commands.Cog):
         return [self._entry_to_dict(e, False) for e in list(entries)[:MAX_PLAYLIST] if e]
 
     def _resolve_sync(self, url: str) -> dict:
-        with yt_dlp.YoutubeDL(YTDL_STREAM_OPTS) as ydl:
-            info = ydl.extract_info(url, download=False)
+        info = self._ydl_extract(YTDL_STREAM_OPTS, url)
         if info and info.get("entries"):
             info = next((e for e in info["entries"] if e), None)
         if not info or not info.get("url"):
@@ -541,6 +596,15 @@ class Music(commands.Cog):
             player.cancel_alone_timer()
         else:
             player.start_alone_timer()
+
+    async def _leave_if_unused(self, guild: discord.Guild):
+        vc = guild.voice_client
+        player = self.players.get(guild.id)
+        if vc is not None and (player is None or (player.current is None and not player.queue)):
+            try:
+                await vc.disconnect(force=True)
+            except Exception:
+                pass
 
     # ---------- shared checks
     async def _control_player(self, interaction: discord.Interaction, need_playing: bool = False) -> Optional[GuildPlayer]:
@@ -594,8 +658,10 @@ class Music(commands.Cog):
             return await _err(interaction, "That took too long to look up. Try again or use another link. 🕸️")
         except Exception as e:
             print(f"[music] extract failed for {query!r}: {e!r}")
-            return await _err(interaction, "I couldn't find or open that. Try a different name or link. 🕸️")
+            await self._leave_if_unused(guild)
+            return await _err(interaction, f"I couldn't find or open that.\n**Why:** {friendly_error(e)}")
         if not tracks:
+            await self._leave_if_unused(guild)
             return await _err(interaction, "No results. Try another search. 🕸️")
 
         if player is None or player.destroyed:
@@ -749,6 +815,34 @@ class Music(commands.Cog):
         target = player.queue[0]
         player.skip()
         await interaction.response.send_message(embed=web_embed("Jumped", f"⏩ Jumping to {target.link}", BLUE))
+
+    # ================================================================ DIAGNOSE
+    @music.command(name="diagnose", description="Check why music isn't working (server managers only)")
+    async def diagnose(self, interaction: discord.Interaction):
+        if not interaction.user.guild_permissions.manage_guild:
+            return await _err(interaction, "You need the **Manage Server** permission for this. 🕷️")
+        await interaction.response.defer(ephemeral=True)
+        ok, bad = "✅", "❌"
+        ffmpeg = shutil.which("ffmpeg")
+        runtimes = found_js_runtimes()
+        lines = [
+            f"{ok if ffmpeg else bad} **FFmpeg:** {ffmpeg or 'NOT FOUND, install it'}",
+            f"{ok if discord.voice_client.has_nacl else bad} **PyNaCl (voice):** "
+            f"{'installed' if discord.voice_client.has_nacl else 'missing'}",
+            f"{ok} **yt-dlp:** {yt_dlp.version.__version__}",
+            f"{ok if runtimes else bad} **JS runtime:** {', '.join(runtimes) if runtimes else 'NONE, install Node.js or Deno'}",
+            f"{'✅' if os.path.exists(COOKIE_FILE) else 'ℹ️'} **cookies.txt:** "
+            f"{'found' if os.path.exists(COOKIE_FILE) else 'not used (only needed if YouTube blocks your host)'}",
+        ]
+        loop = asyncio.get_running_loop()
+        started = time.monotonic()
+        try:
+            data = await asyncio.wait_for(loop.run_in_executor(None, self._extract_sync, "never gonna give you up"), 60)
+            await asyncio.wait_for(loop.run_in_executor(None, self._resolve_sync, data[0]["webpage_url"]), 60)
+            lines.append(f"{ok} **Test song lookup:** worked in {time.monotonic() - started:.1f}s")
+        except Exception as e:
+            lines.append(f"{bad} **Test song lookup failed:** {friendly_error(e)}")
+        await interaction.followup.send(embed=web_embed("Music Check", "\n".join(lines), RED), ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

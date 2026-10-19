@@ -1,1 +1,4 @@
-discord.py>=2.5
+discord.py[voice]>=2.5
+yt-dlp[default]
+PyNaCl
+aiohttp
