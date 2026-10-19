@@ -38,8 +38,10 @@
 - Economy:      /balance /daily /work /give /shop /buy /inventory /richest, /webs ..., /ecoadmin ...
 - Casino:       /coinflip /slots /blackjack /mines, /casino hilo|roulette|dice|rps
 - Mini-games:   /guess (number guessing game, 1-100), /game trivia|daily|hangman|tictactoe|connect4|rps|catch
-- Actions:      /hug /slap /punch /dance, plus /action <type> [@user] for 42 actions with GIFs
-                (kiss, pat, cuddle, poke, bite, kick, yeet, cry, laugh, wave, ...). The target gets a "do it back" button.
+- Actions:      42 actions with GIFs: /hug /slap /punch /dance, plus every other one as its own command:
+                /interact kiss|pat|cuddle|poke|tickle|bite|kick|shoot|yeet|bonk|... @user
+                /react cry|laugh|wave|wink|blush|smile|smug|sleep|yawn|run|... [@user]
+                The target gets a "do it back" button.
 - AutoMod:      /automod status  (everything starts OFF)
   /automod toggle <module|all> on/off
   modules: spam, duplicates, links, invites, badwords, caps, mentions, emojis, zalgo

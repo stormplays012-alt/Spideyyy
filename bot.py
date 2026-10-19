@@ -44,7 +44,7 @@ class Spidey(commands.Bot):
         await self.load_extension("welcome")      # 👋 Welcome & verification
         await self.load_extension("tickets")      # 🎫 Tickets
         await self.load_extension("minigames")    # 🎲 Mini-games (/game, /guess)
-        await self.load_extension("actions")      # 🤗 Actions (/hug /slap /punch /dance /action)
+        await self.load_extension("actions")      # 🤗 Actions (/hug /slap /punch /dance, /interact, /react)
         
         await self.tree.sync()
 

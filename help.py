@@ -44,7 +44,7 @@ def collect(bot: commands.Bot) -> dict:
     cats: dict[str, list] = {}
     cog_top_names = set()
     for name, cog in bot.cogs.items():
-        cmds = cog.get_app_commands()
+        cmds = list(cog.get_app_commands()) + list(getattr(cog, "extra_commands", []))
         if not cmds:
             continue
         cog_top_names.update(c.name for c in cmds)

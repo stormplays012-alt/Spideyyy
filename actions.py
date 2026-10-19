@@ -1,12 +1,16 @@
 """
-Actions: /hug /slap /punch /dance as quick commands, plus /action for 40+ more.
+Actions: 42 GIF actions.
+  * /hug /slap /punch /dance are normal top-level commands
+  * every other action is its own command inside two groups:
+      /interact <kiss|pat|cuddle|poke|bite|kick|yeet|...> @user     (things you do TO someone)
+      /react    <cry|laugh|wave|blush|smile|sleep|...> [@user]     (feelings, alone or with someone)
 
 GIFs come from the free nekos.best API (waifu.pics is the backup), fetched live, so no
 files are stored and nothing needs an API key. If both are down the action still
 posts, just without a GIF.
 
-Why one /action command instead of 40 separate ones: Discord allows only 100 global
-slash commands per bot and Spidey is already close to that limit.
+Why groups: Discord allows only 100 global slash commands per bot (a group counts as ONE, and
+can hold up to 25 commands), so this is how all 42 actions fit.
 """
 import random
 from typing import Optional
@@ -78,6 +82,44 @@ HOSTILE = {"slap", "punch", "kick", "shoot", "yeet", "bonk", "bite", "baka"}
 SOFT = {"hug", "cuddle", "kiss", "peck", "pat", "handhold", "handshake", "highfive", "feed", "nom", "tickle"}
 
 
+TOP_LEVEL = ("hug", "slap", "punch", "dance")
+REACT_KEYS = [k for k, v in ACTIONS.items() if v[3] is not None and k not in TOP_LEVEL]      # feelings
+INTERACT_KEYS = [k for k, v in ACTIONS.items() if v[3] is None and k not in TOP_LEVEL]        # done to someone
+
+
+def command_path(key: str) -> str:
+    """How people type it, e.g. 'hug' or 'interact kiss'."""
+    if key in TOP_LEVEL:
+        return key
+    return f"react {key}" if key in REACT_KEYS else f"interact {key}"
+
+
+def _make_command(key: str) -> app_commands.Command:
+    emoji, label = ACTIONS[key][0], ACTIONS[key][1]
+    needs_target = ACTIONS[key][3] is None
+
+    if needs_target:
+        async def callback(interaction: discord.Interaction, user: discord.Member):
+            await interaction.client.get_cog("Actions").run(interaction, key, user)
+        description = f"{label} someone {emoji}"[:100]
+    else:
+        async def callback(interaction: discord.Interaction, user: Optional[discord.Member] = None):
+            await interaction.client.get_cog("Actions").run(interaction, key, user)
+        description = f"{label}, alone or with someone {emoji}"[:100]
+
+    callback.__name__ = key
+    callback = app_commands.describe(user="Who is it for?")(callback)
+    callback = app_commands.checks.cooldown(1, 3.0)(callback)
+    return app_commands.Command(name=key, description=description, callback=callback)
+
+
+def _make_group(name: str, description: str, keys: list) -> app_commands.Group:
+    group = app_commands.Group(name=name, description=description, guild_only=True)
+    for key in keys:
+        group.add_command(_make_command(key))
+    return group
+
+
 class ReturnView(discord.ui.View):
     """Lets the person who got the action send one back with a single press."""
 
@@ -93,7 +135,7 @@ class ReturnView(discord.ui.View):
     async def press(self, interaction: discord.Interaction):
         if interaction.user.id != self.receiver.id:
             return await interaction.response.send_message(
-                f"Only {self.receiver.display_name} can do that. Use `/{self.key}` yourself! 🕷️", ephemeral=True)
+                f"Only {self.receiver.display_name} can do that. Use `/{command_path(self.key)}` yourself! 🕷️", ephemeral=True)
         self.stop()
         for item in self.children:
             item.disabled = True
@@ -119,11 +161,20 @@ class Actions(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.session: Optional[aiohttp.ClientSession] = None
+        # every action is its own command inside these two groups (registered on the tree in cog_load)
+        self.extra_commands = [
+            _make_group("interact", "Do something to someone: kiss, pat, poke, bite, kick, yeet and more 🤝", INTERACT_KEYS),
+            _make_group("react", "Show a feeling: cry, laugh, wave, blush, sleep and more 😄", REACT_KEYS),
+        ]
 
     async def cog_load(self):
         self.session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=6))
+        for group in self.extra_commands:
+            self.bot.tree.add_command(group)
 
     async def cog_unload(self):
+        for group in self.extra_commands:
+            self.bot.tree.remove_command(group.name)
         if self.session is not None:
             await self.session.close()
 
@@ -174,7 +225,7 @@ class Actions(commands.Cog):
         alone = ACTIONS[key][3]
         if target is None and alone is None:
             return await interaction.response.send_message(
-                embed=web_embed("Who's The Target?", f"Pick someone: `/{key} @user` 🕷️", DARK), ephemeral=True)
+                embed=web_embed("Who's The Target?", f"Pick someone: `/{command_path(key)} @user` 🕷️", DARK), ephemeral=True)
         await interaction.response.defer()          # the GIF lookup can take a moment
         embed = await self.build(key, interaction.user, target)
         view = None
@@ -185,25 +236,6 @@ class Actions(commands.Cog):
             view.message = message
         else:
             await interaction.followup.send(embed=embed)
-
-    # ---------- the big one
-    async def action_autocomplete(self, interaction: discord.Interaction, current: str):
-        current = current.lower().strip()
-        matches = [k for k in ACTIONS if current in k or current in ACTIONS[k][1].lower()]
-        return [app_commands.Choice(name=f"{ACTIONS[k][0]} {ACTIONS[k][1]}", value=k) for k in matches[:25]]
-
-    @app_commands.command(name="action", description=f"Do one of {ACTION_COUNT} actions with a GIF (hug, dance, punch, cry...)")
-    @app_commands.describe(type="Start typing to search the actions", user="Who is it for? (optional for some)")
-    @app_commands.autocomplete(type=action_autocomplete)
-    @app_commands.guild_only()
-    @app_commands.checks.cooldown(1, 3.0)
-    async def action(self, interaction: discord.Interaction, type: str, user: Optional[discord.Member] = None):
-        key = type.lower().strip()
-        if key not in ACTIONS:
-            return await interaction.response.send_message(
-                embed=web_embed("Unknown Action", "Pick one from the list that pops up while you type. 🕸️", DARK),
-                ephemeral=True)
-        await self.run(interaction, key, user)
 
     # ---------- quick commands for the favourites
     @app_commands.command(name="hug", description="Give someone a warm hug 🤗")
