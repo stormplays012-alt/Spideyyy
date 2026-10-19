@@ -5,18 +5,9 @@
 2. Open this folder in VS Code (File > Open Folder)
 3. Open the terminal in VS Code (Ctrl + `) and run:
    pip install -r requirements.txt
-4. Set your bot token as the DISCORD_TOKEN environment variable
+4. Open spidey_bot.py and replace YOUR_TOKEN_HERE with your bot token
 5. Run:
-   python bot.py
-
-## Music needs FFmpeg
-Music uses FFmpeg to play audio. Install it on the machine that runs the bot:
-- Windows: download from ffmpeg.org (or `winget install ffmpeg`) and add it to PATH
-- Linux/VPS: `sudo apt install ffmpeg`
-- Hosting platforms (Railway, Replit, etc.): add `ffmpeg` to the system packages
-  (on Railway/Nixpacks use a `nixpacks.toml` with `aptPkgs = ["ffmpeg"]`)
-Keep yt-dlp up to date (`pip install -U yt-dlp`), YouTube changes often.
-If FFmpeg, yt-dlp or PyNaCl are missing, only music is disabled. The rest of the bot still starts.
+   python spidey_bot.py
 
 ## Discord Developer Portal checklist
 - Bot tab > turn ON "Server Members Intent" AND "Message Content Intent"
@@ -46,11 +37,7 @@ If FFmpeg, yt-dlp or PyNaCl are missing, only music is disabled. The rest of the
 
 - Economy:      /balance /daily /work /give /shop /buy /inventory /richest, /webs ..., /ecoadmin ...
 - Casino:       /coinflip /slots /blackjack /mines, /casino hilo|roulette|dice|rps
-- Mini-games:   /guess (number guessing game, 1-100), /game trivia|daily|hangman|tictactoe|connect4|rps|catch
-- Actions:      /hug /slap /punch /dance, plus /action <type> [@user] for 42 actions with GIFs
-                (kiss, pat, cuddle, poke, bite, kick, yeet, cry, laugh, wave, ...). The target gets a "do it back" button.
-- Music:        /music play <song or link>, pause, resume, skip, stop, nowplaying, queue, loop, shuffle,
-                volume, remove, clear, jump. Joins and leaves by itself, with a button control panel.
+- Games:        /guess  (number guessing game, 1-100)
 - AutoMod:      /automod status  (everything starts OFF)
   /automod toggle <module|all> on/off
   modules: spam, duplicates, links, invites, badwords, caps, mentions, emojis, zalgo

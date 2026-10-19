@@ -1,4 +1,1 @@
-discord.py[voice]>=2.5
-yt-dlp
-PyNaCl
-aiohttp
+discord.py>=2.5
