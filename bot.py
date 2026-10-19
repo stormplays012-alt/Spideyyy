@@ -36,7 +36,6 @@ class Spidey(commands.Bot):
         await self.load_extension("voicemaster")  # 🕷️ VoiceMaster
         await self.load_extension("moderation")   # 🛡️ Moderation
         await self.load_extension("utility")      # 🧰 Utility
-        await self.load_extension("games")        # 🎮 Games
         await self.load_extension("automod")      # 🤖 AutoMod
         await self.load_extension("help")         # 📖 Help (dropdown)
         await self.load_extension("economy")      # 💰 Economy (webs, shop)
@@ -44,7 +43,12 @@ class Spidey(commands.Bot):
         await self.load_extension("leveling")     # ⭐ Leveling (XP, ranks)
         await self.load_extension("welcome")      # 👋 Welcome & verification
         await self.load_extension("tickets")      # 🎫 Tickets
-        await self.load_extension("minigames")    # 🎲 Mini-games (/game)
+        await self.load_extension("minigames")    # 🎲 Mini-games (/game, /guess)
+        await self.load_extension("actions")      # 🤗 Actions (/hug /slap /punch /dance /action)
+        try:
+            await self.load_extension("music")    # 🎵 Music (/music ...)
+        except Exception as e:                    # missing yt-dlp / PyNaCl must not stop the whole bot
+            print(f"⚠️  Music could not load: {e}")
         
         await self.tree.sync()
 
