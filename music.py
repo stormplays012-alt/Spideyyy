@@ -14,11 +14,15 @@ Supports YouTube search, YouTube / SoundCloud / Bandcamp etc. links and YouTube 
 Spotify links are not supported (Spotify does not allow audio streaming), so type the song name instead.
 """
 import asyncio
+import datetime
+import json
 import os
 import random
 import re
 import shutil
 import time
+import urllib.parse
+import urllib.request
 from collections import deque
 from dataclasses import dataclass
 from math import ceil
@@ -78,9 +82,8 @@ def friendly_error(e: Exception) -> str:
     low = text.lower()
     if "ffmpeg" in low and ("not found" in low or "no such file" in low):
         return "FFmpeg is not installed on the machine that runs me. See the README (Music needs FFmpeg)."
-    if "sign in to confirm" in low or "not a bot" in low or "cookies" in low:
-        return ("YouTube is blocking this server's IP (common on hosting sites). Add a `cookies.txt` "
-                "file next to bot.py (see README), or try a SoundCloud link.")
+    if "sign in to confirm" in low or "not a bot" in low or "cookies" in low or "http error 403" in low:
+        return BLOCK_FIX
     if "javascript" in low or "n challenge" in low or "js runtime" in low or "ejs" in low:
         return "yt-dlp needs a JavaScript runtime (Node.js or Deno) installed. See the README."
     if "not available" in low or "unavailable" in low or "private video" in low:
@@ -89,6 +92,33 @@ def friendly_error(e: Exception) -> str:
         return "The request timed out. Try again."
     text = re.sub(r"\x1b\[[0-9;]*m", "", text).replace("ERROR:", "").strip()
     return (text[:200] + "…") if len(text) > 200 else (text or type(e).__name__)
+
+
+YT_RE = re.compile(r"(?:youtube\.com|youtu\.be)", re.I)
+BLOCK_FIX = ("YouTube is blocking this host (normal for hosting companies like Replit, Railway, Render or a VPS). "
+             "Fixes: run the bot on your own PC/home network, or put a `cookies.txt` next to `bot.py` (see README). "
+             "I also try SoundCloud automatically, but it didn't have this song.")
+
+
+def is_youtube(url: str) -> bool:
+    return bool(url and YT_RE.search(url))
+
+
+def search_text(title: str) -> str:
+    """'Song (Official Video) [HD]' -> 'Song' so a SoundCloud search finds it."""
+    t = re.sub(r"[\(\[][^\)\]]*[\)\]]", " ", title or "")
+    t = re.sub(r"(?i)\b(official|video|lyrics?|audio|hd|4k|mv)\b", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t or (title or "")
+
+
+def ytdlp_age_days() -> Optional[int]:
+    """How old this yt-dlp is (YouTube changes often, so very old versions stop working)."""
+    try:
+        y, m, d = (int(x) for x in yt_dlp.version.__version__.split(".")[:3])
+        return (datetime.date.today() - datetime.date(y, m, d)).days
+    except Exception:
+        return None
 
 
 FFMPEG_OPTS = {
@@ -138,6 +168,7 @@ class Track:
     requester_id: int
     stream_url: Optional[str] = None
     resolved_at: float = 0.0
+    fallback: Optional[str] = None      # e.g. "SoundCloud" when YouTube refused
 
     @property
     def link(self) -> str:
@@ -227,6 +258,8 @@ class GuildPlayer:
         embed.add_field(name="Requested by", value=f"<@{t.requester_id}>", inline=True)
         embed.add_field(name="Volume", value=f"🔊 {self.volume}%", inline=True)
         embed.add_field(name="Loop", value=LOOP_LABELS[self.loop_mode], inline=True)
+        if t.fallback:
+            embed.add_field(name="Source", value=f"☁️ {t.fallback} (YouTube blocked this server)", inline=False)
         if self.queue:
             nxt = self.queue[0]
             embed.add_field(name=f"Up next ({len(self.queue)} in queue)", value=nxt.link, inline=False)
@@ -492,6 +525,15 @@ class Music(commands.Cog):
             raise RuntimeError("yt-dlp is not installed. Run: pip install -r requirements.txt")
         if not discord.voice_client.has_nacl:
             raise RuntimeError("PyNaCl is not installed (needed for voice). Run: pip install -r requirements.txt")
+        # Since March 2026 Discord requires DAVE end-to-end encryption for every voice connection.
+        if tuple(discord.version_info[:3]) < (2, 7, 0):
+            raise RuntimeError("discord.py is too old for voice (Discord now requires DAVE encryption, so the bot "
+                               "is disconnected right after joining). Run: pip install -U \"discord.py[voice]\"")
+        try:
+            import davey  # noqa: F401
+        except ImportError:
+            raise RuntimeError("The 'davey' package is missing (Discord voice needs it). "
+                               "Run: pip install -U \"discord.py[voice]\"")
         problems = []
         if shutil.which("ffmpeg") is None:
             problems.append("FFmpeg was not found (install it, see README)")
@@ -534,10 +576,65 @@ class Music(commands.Cog):
             with yt_dlp.YoutubeDL(build_opts(base_opts, with_js=False)) as ydl:
                 return ydl.extract_info(target, download=False)
 
+    # ----- SoundCloud fallback (used when YouTube refuses this host)
+    def _soundcloud_find(self, title: str, duration: Optional[int]) -> Optional[dict]:
+        """Find the closest SoundCloud copy of a song and return yt-dlp info with a playable stream."""
+        info = self._ydl_extract(YTDL_SEARCH_OPTS, f"scsearch5:{search_text(title)}")
+        entries = [e for e in ((info or {}).get("entries") or []) if e and (e.get("url") or e.get("webpage_url"))]
+        if not entries:
+            return None
+        if duration:
+            best = min(entries, key=lambda e: abs((e.get("duration") or 10 ** 6) - duration))
+            if best.get("duration") and abs(best["duration"] - duration) > max(45, duration * 0.4):
+                return None          # closest result is a different version (preview, remix...), better to say so
+        else:
+            best = entries[0]
+        target = best.get("webpage_url") or best.get("url")
+        full = self._ydl_extract(YTDL_STREAM_OPTS, target)
+        if full and full.get("entries"):
+            full = next((x for x in full["entries"] if x), None)
+        if not full or not full.get("url"):
+            return None
+        full["_fallback"] = "SoundCloud"
+        return full
+
+    @staticmethod
+    def _oembed(url: str) -> Optional[dict]:
+        """YouTube's public oEmbed gives title/artist/thumbnail even when playback is blocked."""
+        try:
+            api = "https://www.youtube.com/oembed?format=json&url=" + urllib.parse.quote(url, safe="")
+            with urllib.request.urlopen(api, timeout=10) as r:
+                return json.loads(r.read().decode("utf-8"))
+        except Exception:
+            return None
+
+    def _fallback_lookup(self, query: str, is_url: bool) -> Optional[list[dict]]:
+        if is_url:
+            if not is_youtube(query):
+                return None
+            meta = self._oembed(query)
+            if not meta or not meta.get("title"):
+                return None
+            return [{"title": meta["title"], "webpage_url": query, "duration": None,
+                     "thumbnail": meta.get("thumbnail_url"), "uploader": meta.get("author_name") or "Unknown artist",
+                     "stream_url": None}]
+        info = self._ydl_extract(YTDL_SEARCH_OPTS, f"scsearch1:{query}")
+        entries = [e for e in ((info or {}).get("entries") or []) if e]
+        return [self._entry_to_dict(e, False) for e in entries] or None
+
     def _extract_sync(self, query: str) -> list[dict]:
-        if not URL_RE.match(query):
-            query = f"ytsearch1:{query}"
-        info = self._ydl_extract(YTDL_SEARCH_OPTS, query)
+        is_url = bool(URL_RE.match(query))
+        target = query if is_url else f"ytsearch1:{query}"
+        try:
+            info = self._ydl_extract(YTDL_SEARCH_OPTS, target)
+        except Exception as first_error:
+            try:
+                alt = self._fallback_lookup(query, is_url)
+            except Exception:
+                alt = None
+            if alt:
+                return alt
+            raise first_error
         if not info:
             return []
         entries = info.get("entries")
@@ -545,13 +642,25 @@ class Music(commands.Cog):
             return [self._entry_to_dict(info, True)]
         return [self._entry_to_dict(e, False) for e in list(entries)[:MAX_PLAYLIST] if e]
 
-    def _resolve_sync(self, url: str) -> dict:
-        info = self._ydl_extract(YTDL_STREAM_OPTS, url)
-        if info and info.get("entries"):
-            info = next((e for e in info["entries"] if e), None)
-        if not info or not info.get("url"):
-            raise RuntimeError("no playable stream found")
-        return info
+    def _resolve_sync(self, url: str, title: Optional[str] = None, duration: Optional[int] = None) -> dict:
+        try:
+            info = self._ydl_extract(YTDL_STREAM_OPTS, url)
+            if info and info.get("entries"):
+                info = next((e for e in info["entries"] if e), None)
+            if not info or not info.get("url"):
+                raise RuntimeError("no playable stream found")
+            return info
+        except Exception as first_error:
+            if title and is_youtube(url):
+                try:
+                    alt = self._soundcloud_find(title, duration)
+                except Exception as e:
+                    print(f"[music] SoundCloud fallback failed for {title!r}: {e!r}")
+                    alt = None
+                if alt:
+                    print(f"[music] YouTube refused {url}; playing {title!r} from SoundCloud instead")
+                    return alt
+            raise first_error
 
     async def extract(self, query: str, requester: discord.abc.User) -> list[Track]:
         loop = asyncio.get_running_loop()
@@ -570,9 +679,13 @@ class Music(commands.Cog):
         url = track.stream_url if track.stream_url and time.time() - track.resolved_at < STREAM_TTL else None
         if url is None:
             loop = asyncio.get_running_loop()
-            info = await asyncio.wait_for(loop.run_in_executor(None, self._resolve_sync, track.webpage_url), timeout=60)
+            info = await asyncio.wait_for(
+                loop.run_in_executor(None, self._resolve_sync, track.webpage_url, track.title, track.duration), timeout=90)
             url = info["url"]
             track.stream_url, track.resolved_at = url, time.time()
+            track.fallback = info.get("_fallback")
+            if track.fallback and info.get("duration"):
+                track.duration = int(info["duration"])
             if not track.duration and info.get("duration"):
                 track.duration = int(info["duration"])
             if not track.thumbnail and info.get("thumbnail"):
@@ -825,23 +938,52 @@ class Music(commands.Cog):
         ok, bad = "✅", "❌"
         ffmpeg = shutil.which("ffmpeg")
         runtimes = found_js_runtimes()
+        age = ytdlp_age_days()
+        try:
+            import davey  # noqa: F401
+            has_davey = True
+        except ImportError:
+            has_davey = False
+        voice_ok = has_davey and tuple(discord.version_info[:3]) >= (2, 7, 0)
         lines = [
+            f"{ok if voice_ok else bad} **Voice (discord.py {discord.__version__} + davey):** "
+            f"{'ready' if voice_ok else 'run pip install -U \"discord.py[voice]\"'}",
             f"{ok if ffmpeg else bad} **FFmpeg:** {ffmpeg or 'NOT FOUND, install it'}",
             f"{ok if discord.voice_client.has_nacl else bad} **PyNaCl (voice):** "
             f"{'installed' if discord.voice_client.has_nacl else 'missing'}",
-            f"{ok} **yt-dlp:** {yt_dlp.version.__version__}",
+            f"{bad if (age is not None and age > 60) else ok} **yt-dlp:** {yt_dlp.version.__version__}"
+            + (f" ({age} days old, update with `pip install -U yt-dlp`)" if (age is not None and age > 60) else ""),
             f"{ok if runtimes else bad} **JS runtime:** {', '.join(runtimes) if runtimes else 'NONE, install Node.js or Deno'}",
             f"{'✅' if os.path.exists(COOKIE_FILE) else 'ℹ️'} **cookies.txt:** "
             f"{'found' if os.path.exists(COOKIE_FILE) else 'not used (only needed if YouTube blocks your host)'}",
         ]
         loop = asyncio.get_running_loop()
+        yt_ok = sc_ok = False
         started = time.monotonic()
-        try:
-            data = await asyncio.wait_for(loop.run_in_executor(None, self._extract_sync, "never gonna give you up"), 60)
-            await asyncio.wait_for(loop.run_in_executor(None, self._resolve_sync, data[0]["webpage_url"]), 60)
-            lines.append(f"{ok} **Test song lookup:** worked in {time.monotonic() - started:.1f}s")
+        try:      # YouTube on its own (no fallback), so you can see whether this host is blocked
+            info = await asyncio.wait_for(loop.run_in_executor(
+                None, self._ydl_extract, YTDL_STREAM_OPTS, "https://www.youtube.com/watch?v=dQw4w9WgXcQ"), 60)
+            yt_ok = bool(info and info.get("url"))
+            lines.append(f"{ok if yt_ok else bad} **YouTube:** " + (f"works ({time.monotonic() - started:.1f}s)" if yt_ok else "no stream"))
         except Exception as e:
-            lines.append(f"{bad} **Test song lookup failed:** {friendly_error(e)}")
+            lines.append(f"{bad} **YouTube:** {friendly_error(e)}")
+        started = time.monotonic()
+        try:      # SoundCloud, the automatic backup
+            info = await asyncio.wait_for(loop.run_in_executor(
+                None, self._soundcloud_find, "never gonna give you up", None), 60)
+            sc_ok = bool(info and info.get("url"))
+            lines.append(f"{ok if sc_ok else bad} **SoundCloud backup:** " + (f"works ({time.monotonic() - started:.1f}s)" if sc_ok else "nothing found"))
+        except Exception as e:
+            lines.append(f"{bad} **SoundCloud backup:** {friendly_error(e)}")
+        if yt_ok:
+            verdict = "🎉 **Everything works.** YouTube plays directly."
+        elif sc_ok:
+            verdict = ("🟡 **Music works through SoundCloud.** YouTube is blocking this host. For YouTube too: run the bot "
+                       "on your own PC/home network, or add a `cookies.txt` (see README).")
+        else:
+            verdict = ("🔴 **Neither source works from this host.** Check the internet/firewall, update yt-dlp "
+                       "(`pip install -U yt-dlp`), and see the README.")
+        lines += ["", verdict]
         await interaction.followup.send(embed=web_embed("Music Check", "\n".join(lines), RED), ephemeral=True)
 
 

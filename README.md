@@ -42,10 +42,44 @@
                 /interact kiss|pat|cuddle|poke|tickle|bite|kick|shoot|yeet|bonk|... @user
                 /react cry|laugh|wave|wink|blush|smile|smug|sleep|yawn|run|... [@user]
                 The target gets a "do it back" button.
+- Leveling:     /rank /leaderboard, /levelconfig ..., /levelreward ...
+- Welcome:      /welcome status|channel|message|goodbyechannel|goodbyemessage|autorole|minage|verify|test
+                and the look: /welcome text|title|footer|color|thumbnail|image|resetstyle
+- Tickets:      /ticket setup|panel|supportrole|add|remove|rename|close
 - AutoMod:      /automod status  (everything starts OFF)
   /automod toggle <module|all> on/off
   modules: spam, duplicates, links, invites, badwords, caps, mentions, emojis, zalgo
   /automod set, punishment, badwords, allowlist, ignorechannel, ignorerole,
   staff, strikes, clearstrikes, reset
 
-Data is saved in voicemaster.json, moderation.json, utility.json and automod.json (created automatically).
+- Music:        /music play|pause|resume|skip|stop|queue|nowplaying|loop|shuffle|volume|remove|clear|jump|diagnose
+
+## Customising the welcome message (staff with Manage Server)
+Use `/welcome test` after every change to preview exactly what new members will see.
+- `/welcome channel #welcome`   where it is sent (nothing is sent until you set this)
+- `/welcome text ...`           text ABOVE the embed. `{user}` here pings the new member (empty = none)
+- `/welcome title ...`          embed title      |  `/welcome message ...` the embed text
+- `/welcome footer ...`         small text at the bottom (empty = Spidey default, `off` = none)
+- `/welcome color #00ff99`      color strip      |  `/welcome thumbnail`  avatar / server icon / custom / none
+- `/welcome image`              big picture at the bottom: give a https:// link or upload a file (PNG/JPG/GIF/WEBP, 8 MB)
+Placeholders that work in text, title, message and footer: `{user}` `{name}` `{server}` `{count}` (type `\n` for a new line).
+Uploaded pictures are saved in the `welcome_images` folder next to bot.py. `/welcome resetstyle` restores the default look.
+
+## Music setup (needed on the computer/server that runs the bot)
+1. `pip install -r requirements.txt`  (installs discord.py[voice], yt-dlp, PyNaCl). Voice needs discord.py 2.7.1+
+   because Discord requires DAVE encryption for all voice since March 2026.
+2. Install FFmpeg:  Windows `winget install ffmpeg`  |  Mac `brew install ffmpeg`  |  Linux `sudo apt install ffmpeg`
+3. Install a JavaScript runtime for YouTube (recommended): Deno (https://deno.com) or Node.js.
+4. Start the bot, join a voice channel and run `/music diagnose` (needs Manage Server). It tells you what is missing.
+
+### "YouTube is blocking this host" / songs won't load
+YouTube blocks the IP addresses of hosting companies (Replit, Railway, Render, most VPS). When that happens Spidey
+automatically plays the song from SoundCloud instead (the now-playing card shows the source), so music keeps working.
+To get YouTube itself back:
+- Run the bot on your own PC / home internet (home IPs are normally not blocked), or
+- Export your YouTube cookies (Netscape format, from a spare Google account, not your main one) to `cookies.txt`
+  next to bot.py, or set the path in the YTDL_COOKIES environment variable.
+- Keep yt-dlp up to date: `pip install -U yt-dlp` (YouTube changes often).
+Spotify links can't be streamed. Type the song name instead.
+
+Data is saved in .json files next to bot.py (created automatically) plus the welcome_images folder.
