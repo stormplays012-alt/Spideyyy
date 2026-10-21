@@ -45,10 +45,6 @@ class Spidey(commands.Bot):
         await self.load_extension("tickets")      # 🎫 Tickets
         await self.load_extension("minigames")    # 🎲 Mini-games (/game, /guess)
         await self.load_extension("actions")      # 🤗 Actions (/hug /slap /punch /dance, /interact, /react)
-        try:
-            await self.load_extension("music")    # 🎵 Music (/music ...)
-        except Exception as e:                    # music needs FFmpeg + yt-dlp; the rest of the bot works without it
-            print(f"⚠️ Music is disabled: {e}")
         
         await self.tree.sync()
 
