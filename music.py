@@ -945,9 +945,9 @@ class Music(commands.Cog):
         except ImportError:
             has_davey = False
         voice_ok = has_davey and tuple(discord.version_info[:3]) >= (2, 7, 0)
+        voice_hint = "ready" if voice_ok else 'run pip install -U "discord.py[voice]"'
         lines = [
-            f"{ok if voice_ok else bad} **Voice (discord.py {discord.__version__} + davey):** "
-            f"{'ready' if voice_ok else 'run pip install -U \"discord.py[voice]\"'}",
+            f"{ok if voice_ok else bad} **Voice (discord.py {discord.__version__} + davey):** {voice_hint}",
             f"{ok if ffmpeg else bad} **FFmpeg:** {ffmpeg or 'NOT FOUND, install it'}",
             f"{ok if discord.voice_client.has_nacl else bad} **PyNaCl (voice):** "
             f"{'installed' if discord.voice_client.has_nacl else 'missing'}",
