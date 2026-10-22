@@ -223,7 +223,16 @@ class Dashboard(commands.Cog):
         config = {}
         if automod_cog:
             c = automod_cog.cfg(gid)
-            config["automod"] = {"modules": dict(c["modules"]), "ignore_staff": bool(c["ignore_staff"])}
+            config["automod"] = {
+                "modules": dict(c["modules"]), "ignore_staff": bool(c["ignore_staff"]),
+                "spam": dict(c.get("spam", {})), "duplicates": dict(c.get("duplicates", {})),
+                "caps": dict(c.get("caps", {})), "mentions": dict(c.get("mentions", {})),
+                "emojis": dict(c.get("emojis", {})), "badwords": list(c.get("badwords", [])),
+                "allowed_domains": list(c.get("allowed_domains", [])),
+                "ignored_channels": list(c.get("ignored_channels", [])),
+                "ignored_roles": list(c.get("ignored_roles", [])),
+                "punishment": dict(c.get("punishment", {})),
+            }
         if welcome_cog:
             c = welcome_cog.cfg(gid)
             config["welcome"] = {
@@ -284,6 +293,58 @@ class Dashboard(commands.Cog):
                 if not isinstance(payload["ignore_staff"], bool):
                     raise web.HTTPBadRequest(text="ignore_staff must be true or false.")
                 c["ignore_staff"] = payload["ignore_staff"]
+            numeric = {
+                "spam": {"messages": (2, 20), "seconds": (1, 60)},
+                "duplicates": {"count": (2, 10), "seconds": (5, 300)},
+                "caps": {"percent": (30, 100), "min_length": (5, 100)},
+                "mentions": {"limit": (2, 30)}, "emojis": {"limit": (3, 50)},
+            }
+            for section, fields in numeric.items():
+                incoming = payload.get(section, {})
+                if incoming is not None and not isinstance(incoming, dict):
+                    raise web.HTTPBadRequest(text=f"{section} must be an object.")
+                for key, bounds in fields.items():
+                    if key in incoming:
+                        c.setdefault(section, {})[key] = _int(incoming[key], bounds[0], bounds[1], f"{section}.{key}")
+            for key, limit in (("badwords", 100), ("allowed_domains", 100)):
+                if key in payload:
+                    values = payload[key]
+                    if not isinstance(values, list) or len(values) > limit or any(not isinstance(x, str) for x in values):
+                        raise web.HTTPBadRequest(text=f"{key} must be a list of up to {limit} text items.")
+                    cleaned = []
+                    for item in values:
+                        item = item.strip().lower()
+                        if not item: continue
+                        if len(item) > 100 or any(ch.isspace() for ch in item):
+                            raise web.HTTPBadRequest(text=f"Invalid {key} item: {item[:40]}")
+                        cleaned.append(item)
+                    c[key] = list(dict.fromkeys(cleaned))
+            for key, kind in (("ignored_channels", "channel"), ("ignored_roles", "role")):
+                if key in payload:
+                    values = payload[key]
+                    if not isinstance(values, list) or len(values) > 100:
+                        raise web.HTTPBadRequest(text=f"{key} must be a list of IDs.")
+                    ids = []
+                    for raw in values:
+                        ident = _int(raw, 1, 2**63 - 1, key)
+                        obj = guild.get_channel(ident) if kind == "channel" else guild.get_role(ident)
+                        if kind == "channel" and not isinstance(obj, __import__("discord").TextChannel):
+                            raise web.HTTPBadRequest(text=f"{ident} is not a text channel in this server.")
+                        if obj is None:
+                            raise web.HTTPBadRequest(text=f"Invalid ignored {kind} ID: {ident}")
+                        ids.append(ident)
+                    c[key] = list(dict.fromkeys(ids))
+            if "punishment" in payload:
+                incoming = payload["punishment"]
+                if not isinstance(incoming, dict):
+                    raise web.HTTPBadRequest(text="punishment must be an object.")
+                punish = c.setdefault("punishment", {})
+                if "action" in incoming:
+                    if incoming["action"] not in ("none", "timeout", "kick", "ban"):
+                        raise web.HTTPBadRequest(text="Punishment action must be none, timeout, kick, or ban.")
+                    punish["action"] = incoming["action"]
+                for key, lo, hi in (("strikes",1,10),("window",30,86400),("duration",60,2419200)):
+                    if key in incoming: punish[key] = _int(incoming[key], lo, hi, f"punishment.{key}")
             cog.save()
             changed.append("AutoMod")
 
@@ -390,7 +451,7 @@ class Dashboard(commands.Cog):
             raise web.HTTPBadRequest(text="Save ticket settings first.")
         try:
             body = await request.json()
-            channel_id = int(body.get("channel_id", 0))
+            channel_id = _int(body.get("channel_id", 0), 1, 2**63 - 1, "channel_id")
         except Exception:
             raise web.HTTPBadRequest(text="Choose a text channel.")
         channel = guild.get_channel(channel_id)
@@ -400,9 +461,20 @@ class Dashboard(commands.Cog):
         if not channel.permissions_for(guild.me).send_messages or not channel.permissions_for(guild.me).embed_links:
             raise web.HTTPForbidden(text="Spideyyy needs Send Messages and Embed Links in that channel.")
         from tickets import TicketPanel
-        from theme import web_embed, RED
-        await channel.send(embed=web_embed("Need Help?", "Press the button below to open a private ticket with our staff. 🕷️", RED), view=TicketPanel())
-        return web.json_response({"ok": True, "message": f"Ticket panel posted in #{channel.name}."})
+        from theme import RED
+        title = body.get("title", "Need Help?")
+        description = body.get("description", "Press the button below to open a private ticket with our staff. 🕷️")
+        button_label = body.get("button_label", "Open Ticket")
+        if not isinstance(title, str) or not title.strip() or len(title) > 256:
+            raise web.HTTPBadRequest(text="Panel title must be 1–256 characters.")
+        if not isinstance(description, str) or not description.strip() or len(description) > 4096:
+            raise web.HTTPBadRequest(text="Panel description must be 1–4096 characters.")
+        if not isinstance(button_label, str) or not button_label.strip() or len(button_label) > 80:
+            raise web.HTTPBadRequest(text="Button label must be 1–80 characters.")
+        discord = __import__("discord")
+        embed = discord.Embed(title=title.strip(), description=description.strip(), color=RED)
+        await channel.send(embed=embed, view=TicketPanel(button_label=button_label.strip()))
+        return web.json_response({"ok": True, "message": f"Custom ticket panel posted in #{channel.name}."})
 
     async def api_save_voicemaster(self, request: web.Request) -> web.Response:
         _, guild = await self._authorized_guild(request)

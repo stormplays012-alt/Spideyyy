@@ -38,11 +38,17 @@ class CloseModal(discord.ui.Modal, title="Close this ticket"):
 
 # ------------------------------------------------------------------ persistent views
 class TicketPanel(discord.ui.View):
-    def __init__(self):
+    """Persistent ticket panel; the label can be customized per posted panel."""
+    def __init__(self, button_label: str = "Open Ticket"):
         super().__init__(timeout=None)
+        button = discord.ui.Button(
+            label=(button_label.strip()[:80] or "Open Ticket"), emoji="🎫",
+            style=discord.ButtonStyle.primary, custom_id="ticket:open",
+        )
+        button.callback = self.open_ticket
+        self.add_item(button)
 
-    @discord.ui.button(label="Open Ticket", emoji="🎫", style=discord.ButtonStyle.primary, custom_id="ticket:open")
-    async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+    async def open_ticket(self, interaction: discord.Interaction):
         await interaction.response.send_modal(OpenModal())
 
 
