@@ -262,25 +262,64 @@ class Dashboard(commands.Cog):
         if voice_cog:
             vc = voice_cog.store.get_guild(gid) or {}
             config["voicemaster"] = {"category_id": vc.get("category_id"), "creator_id": vc.get("creator_id"), "enabled": bool(vc)}
-        # Build dropdown data from Discord's live API rather than relying only on
-        # the local cache. A partially populated cache can otherwise make all
-        # ticket routing selects appear empty.
+        # Fetch raw channel/role records through discord.py's HTTP client first.
+        # This avoids depending on guild cache/chunking and avoids class-based
+        # filtering returning empty lists when cache state is incomplete.
+        channel_records = None
+        role_records = None
+        fetch_errors = []
         try:
-            fetched_channels = await guild.fetch_channels()
-        except Exception:
-            fetched_channels = list(guild.channels)
+            channel_records = await self.bot.http.get_all_guild_channels(gid)
+        except Exception as exc:
+            fetch_errors.append(f"channels: {type(exc).__name__}: {exc}")
         try:
-            fetched_roles = await guild.fetch_roles()
-        except Exception:
-            fetched_roles = list(guild.roles)
-        discord = __import__("discord")
-        channels = [{"id": str(ch.id), "name": ch.name} for ch in fetched_channels if isinstance(ch, discord.TextChannel)]
-        categories = [{"id": str(ch.id), "name": ch.name} for ch in fetched_channels if isinstance(ch, discord.CategoryChannel)]
-        voice_channels = [{"id": str(ch.id), "name": ch.name} for ch in fetched_channels if isinstance(ch, discord.VoiceChannel)]
-        roles = [{"id": str(r.id), "name": r.name} for r in fetched_roles if not r.is_default()]
+            role_records = await self.bot.http.get_all_guild_roles(gid)
+        except Exception as exc:
+            fetch_errors.append(f"roles: {type(exc).__name__}: {exc}")
+
+        # Compatibility fallback for discord.py variants whose HTTP helper names differ.
+        if channel_records is None:
+            try:
+                fetched_channels = await guild.fetch_channels()
+                channel_records = [{"id": str(ch.id), "name": ch.name, "type": getattr(ch, "type", None)} for ch in fetched_channels]
+            except Exception as exc:
+                fetch_errors.append(f"fetch_channels: {type(exc).__name__}: {exc}")
+                channel_records = [{"id": str(ch.id), "name": ch.name, "type": getattr(ch, "type", None)} for ch in guild.channels]
+        if role_records is None:
+            try:
+                fetched_roles = await guild.fetch_roles()
+                role_records = [{"id": str(r.id), "name": r.name} for r in fetched_roles]
+            except Exception as exc:
+                fetch_errors.append(f"fetch_roles: {type(exc).__name__}: {exc}")
+                role_records = [{"id": str(r.id), "name": r.name} for r in guild.roles]
+
+        def channel_type(record):
+            value = record.get("type")
+            # Raw Discord channel types: 0 text, 2 voice, 4 category, 5 announcement.
+            if isinstance(value, int):
+                return value
+            value = str(value or "").lower()
+            return {"text": 0, "voice": 2, "category": 4, "news": 5, "announcement": 5}.get(value, -1)
+
+        channels, categories, voice_channels = [], [], []
+        for record in channel_records or []:
+            typ = channel_type(record)
+            item = {"id": str(record.get("id", "")), "name": str(record.get("name", ""))}
+            if not item["id"] or not item["name"]:
+                continue
+            if typ in (0, 5):
+                channels.append(item)
+            elif typ == 4:
+                categories.append(item)
+            elif typ == 2:
+                voice_channels.append(item)
+        roles = [{"id": str(r.get("id", "")), "name": str(r.get("name", ""))}
+                 for r in (role_records or []) if r.get("id") and r.get("name") and str(r.get("id")) != str(gid)]
         channels.sort(key=lambda item: item["name"].lower())
         categories.sort(key=lambda item: item["name"].lower())
         roles.sort(key=lambda item: item["name"].lower())
+        if not channels or not categories or not roles:
+            print(f"[dashboard] Discord dropdown data for guild {gid}: text_channels={len(channels)}, categories={len(categories)}, roles={len(roles)}; fetch_errors={fetch_errors}")
         return web.json_response({"guild": {"id": str(gid), "name": guild.name}, "config": config, "channels": channels, "categories": categories, "voice_channels": voice_channels, "roles": roles})
 
     async def api_save_config(self, request: web.Request) -> web.Response:
