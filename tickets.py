@@ -18,14 +18,44 @@ DEFAULT_CFG = {"category": None, "support_roles": [], "log_channel": None, "coun
 
 
 # ------------------------------------------------------------------ modals
-class OpenModal(discord.ui.Modal, title="Open a ticket 🎫"):
-    subject = discord.ui.TextInput(label="What do you need help with?", max_length=100)
-    details = discord.ui.TextInput(label="Details (optional)", style=discord.TextStyle.paragraph,
-                                   required=False, max_length=1000)
+class OpenModal(discord.ui.Modal):
+    """Ticket form with Discord-safe limits (modal title <=45; max 5 inputs)."""
+    def __init__(self, panel_id: str | None = None, panel: dict | None = None):
+        panel = panel or {}
+        title = str(panel.get("form_title") or "Open a ticket 🎫")[:45]
+        super().__init__(title=title, timeout=300)
+        self.panel_id = panel_id
+        self.question_inputs = []
+        questions = panel.get("questions") or [
+            {"label": "What do you need help with?", "style": "short", "required": True, "placeholder": "Briefly describe your issue"},
+            {"label": "Details (optional)", "style": "paragraph", "required": False, "placeholder": "Add any useful details"},
+        ]
+        # Discord supports at most five modal components. Never exceed it.
+        for i, item in enumerate(questions[:5]):
+            if not isinstance(item, dict):
+                continue
+            label = str(item.get("label") or f"Question {i+1}")[:45]
+            style = discord.TextStyle.paragraph if item.get("style") == "paragraph" else discord.TextStyle.short
+            field = discord.ui.TextInput(
+                label=label, style=style,
+                required=bool(item.get("required", True)),
+                max_length=max(1, min(4000, int(item.get("max_length", 1000 if style == discord.TextStyle.paragraph else 100)))),
+                placeholder=(str(item.get("placeholder") or "")[:100] or None),
+                custom_id=f"q{i+1}",
+            )
+            self.question_inputs.append((label, field))
+            self.add_item(field)
+        if not self.question_inputs:
+            field = discord.ui.TextInput(label="What do you need help with?", max_length=100)
+            self.question_inputs.append(("Subject", field))
+            self.add_item(field)
 
     async def on_submit(self, interaction: discord.Interaction):
         cog = interaction.client.get_cog("Tickets")
-        await cog.create_ticket(interaction, str(self.subject).strip(), str(self.details).strip())
+        answers = [(label, str(field).strip()) for label, field in self.question_inputs]
+        subject = next((v for k, v in answers if "help" in k.lower() or "subject" in k.lower() or "issue" in k.lower()), answers[0][1])
+        details = "\n".join(f"**{k}:** {v}" for k, v in answers if v and v != subject)
+        await cog.create_ticket(interaction, subject[:100] or "Support request", details, self.panel_id, answers)
 
 
 class CloseModal(discord.ui.Modal, title="Close this ticket"):
@@ -38,18 +68,29 @@ class CloseModal(discord.ui.Modal, title="Close this ticket"):
 
 # ------------------------------------------------------------------ persistent views
 class TicketPanel(discord.ui.View):
-    """Persistent ticket panel; the label can be customized per posted panel."""
-    def __init__(self, button_label: str = "Open Ticket"):
+    """Persistent panel button with a unique custom ID per panel."""
+    def __init__(self, button_label: str = "Open Ticket", panel_id: str | None = None, config: dict | None = None):
         super().__init__(timeout=None)
+        self.panel_id = panel_id
+        self.config = config or {}
+        styles = {"primary": discord.ButtonStyle.primary, "secondary": discord.ButtonStyle.secondary,
+                  "success": discord.ButtonStyle.success, "danger": discord.ButtonStyle.danger}
+        style = styles.get(str(self.config.get("button_style", "primary")), discord.ButtonStyle.primary)
+        custom_id = f"ticket:open:{panel_id}" if panel_id else "ticket:open"
         button = discord.ui.Button(
-            label=(button_label.strip()[:80] or "Open Ticket"), emoji="🎫",
-            style=discord.ButtonStyle.primary, custom_id="ticket:open",
+            label=(button_label.strip()[:80] or "Open Ticket"),
+            emoji=(str(self.config.get("button_emoji") or "🎫")[:32] or None),
+            style=style, custom_id=custom_id,
         )
         button.callback = self.open_ticket
         self.add_item(button)
 
     async def open_ticket(self, interaction: discord.Interaction):
-        await interaction.response.send_modal(OpenModal())
+        cog = interaction.client.get_cog("Tickets")
+        panel = self.config
+        if self.panel_id:
+            panel = cog.cfg(interaction.guild_id).get("panels", {}).get(self.panel_id, self.config)
+        await interaction.response.send_modal(OpenModal(self.panel_id, panel))
 
 
 class TicketControls(discord.ui.View):
@@ -67,7 +108,7 @@ class TicketControls(discord.ui.View):
         ticket = cog.data["tickets"].get(str(interaction.channel.id))
         if ticket is None:
             return await fail(interaction, "This isn't an active ticket.")
-        if not (interaction.user.id == ticket["opener"] or cog.is_staff(interaction.user)):
+        if not (interaction.user.id == ticket["opener"] or cog.is_staff(interaction.user, ticket)):
             return await fail(interaction, "Only the ticket owner or staff can close this ticket. 🕷️")
         await interaction.response.send_modal(CloseModal())
 
@@ -90,8 +131,16 @@ class Tickets(commands.Cog):
                 pass
 
     async def cog_load(self):
-        self.bot.add_view(TicketPanel())
+        # Register every saved panel so buttons continue working after restarts.
+        self.bot.add_view(TicketPanel())  # backwards compatibility with older panels
         self.bot.add_view(TicketControls())
+        for gid, raw in list(self.data["guilds"].items()):
+            panels = raw.get("panels", {}) if isinstance(raw, dict) else {}
+            for panel_id, panel in panels.items():
+                try:
+                    self.bot.add_view(TicketPanel(panel.get("button_label", "Open Ticket"), panel_id, panel))
+                except (ValueError, TypeError):
+                    continue
 
     def save(self):
         tmp = DATA_FILE + ".tmp"
@@ -103,13 +152,19 @@ class Tickets(commands.Cog):
         g = self.data["guilds"].setdefault(str(gid), {})
         for k, v in DEFAULT_CFG.items():
             g.setdefault(k, list(v) if isinstance(v, list) else v)
+        if not isinstance(g.get("panels"), dict):
+            g["panels"] = {}
         return g
 
-    def is_staff(self, member: discord.Member) -> bool:
+    def is_staff(self, member: discord.Member, ticket: dict | None = None) -> bool:
         if member.guild_permissions.administrator:
             return True
-        ids = self.cfg(member.guild.id)["support_roles"]
-        return any(r.id in ids for r in member.roles)
+        cfg = self.cfg(member.guild.id)
+        ids = cfg["support_roles"]
+        if ticket and ticket.get("panel_id"):
+            panel = cfg.get("panels", {}).get(ticket["panel_id"], {})
+            ids = panel.get("support_roles", ids)
+        return any(r.id in [int(x) for x in ids] for r in member.roles)
 
     def current_ticket(self, interaction: discord.Interaction):
         return self.data["tickets"].get(str(interaction.channel.id))
@@ -120,14 +175,18 @@ class Tickets(commands.Cog):
             self.save()
 
     # ================================================================ CREATING
-    async def create_ticket(self, interaction: discord.Interaction, subject: str, details: str):
+    async def create_ticket(self, interaction: discord.Interaction, subject: str, details: str, panel_id: str | None = None, answers=None):
         guild, user = interaction.guild, interaction.user
         c = self.cfg(guild.id)
-        category = guild.get_channel(c["category"]) if c["category"] else None
+        panel = c.get("panels", {}).get(panel_id, {}) if panel_id else {}
+        category_id = panel.get("category", c["category"])
+        category = guild.get_channel(int(category_id)) if category_id else None
+        support_ids = panel.get("support_roles", c["support_roles"])
+        max_open = int(panel.get("max_open", c["max_open"]))
         if not isinstance(category, discord.CategoryChannel):
             return await fail(interaction, "Tickets aren't set up yet. Ask an admin to run `/ticket setup`.")
         mine = [t for t in self.data["tickets"].values() if t["guild"] == guild.id and t["opener"] == user.id]
-        if len(mine) >= c["max_open"]:
+        if len(mine) >= max_open:
             where = f" (<#{mine[0]['channel']}>)" if mine else ""
             return await fail(interaction, f"You already have {len(mine)} open ticket(s){where}. Close it before opening another.")
 
@@ -144,7 +203,7 @@ class Tickets(commands.Cog):
             guild.me: discord.PermissionOverwrite(view_channel=True, send_messages=True, manage_channels=True,
                                                   read_message_history=True, attach_files=True, embed_links=True),
         }
-        staff_roles = [r for r in (guild.get_role(i) for i in c["support_roles"]) if r]
+        staff_roles = [r for r in (guild.get_role(int(i)) for i in support_ids) if r]
         for role in staff_roles:
             overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True,
                                                            attach_files=True, embed_links=True, manage_messages=True)
@@ -158,12 +217,14 @@ class Tickets(commands.Cog):
 
         self.data["tickets"][str(channel.id)] = {
             "guild": guild.id, "channel": channel.id, "opener": user.id, "number": number,
-            "subject": subject, "claimed_by": None, "created": int(time.time()),
+            "subject": subject, "claimed_by": None, "created": int(time.time()), "panel_id": panel_id,
+            "answers": answers or [],
         }
         self.save()
 
-        embed = web_embed(f"Ticket #{number}", f"**Subject:** {subject}\n" + (f"**Details:** {details}\n" if details else "")
-                          + "\nA staff member will be with you soon. 🕷️", BLUE)
+        intro = str(panel.get("ticket_message") or "A staff member will be with you soon. 🕷️")[:4000]
+        embed = web_embed(f"Ticket #{number}", f"**Subject:** {subject}\n" + (f"{details}\n" if details else "")
+                          + f"\n{intro}", BLUE)
         embed.set_author(name=user.display_name, icon_url=user.display_avatar.url)
         mentions = " ".join([user.mention] + [r.mention for r in staff_roles])
         await channel.send(content=mentions, embed=embed, view=TicketControls(),
@@ -176,8 +237,8 @@ class Tickets(commands.Cog):
         ticket = self.current_ticket(interaction)
         if ticket is None:
             return await fail(interaction, "This isn't an active ticket.")
-        if not self.is_staff(interaction.user):
-            return await fail(interaction, "Only staff can claim tickets. 🕷️")
+        if not self.is_staff(interaction.user, ticket):
+            return await fail(interaction, "Only this ticket's support staff can claim it. 🕷️")
         if ticket["claimed_by"]:
             return await fail(interaction, f"This ticket is already claimed by <@{ticket['claimed_by']}>.")
         ticket["claimed_by"] = interaction.user.id
@@ -201,7 +262,7 @@ class Tickets(commands.Cog):
         ticket = self.data["tickets"].get(str(channel.id))
         if ticket is None:
             return await fail(interaction, "This isn't an active ticket.")
-        if not (interaction.user.id == ticket["opener"] or self.is_staff(interaction.user)):
+        if not (interaction.user.id == ticket["opener"] or self.is_staff(interaction.user, ticket)):
             return await fail(interaction, "Only the ticket owner or staff can close this ticket. 🕷️")
 
         await interaction.response.send_message(embed=web_embed(
@@ -214,7 +275,9 @@ class Tickets(commands.Cog):
                    f"**Subject:** {ticket['subject']}\n**Closed by:** {interaction.user.mention}\n**Reason:** {reason}"
                    + (f"\n**Claimed by:** <@{ticket['claimed_by']}>" if ticket["claimed_by"] else ""))
 
-        log = guild.get_channel(c["log_channel"]) if c["log_channel"] else None
+        panel = c.get("panels", {}).get(ticket.get("panel_id"), {}) if ticket.get("panel_id") else {}
+        log_id = panel.get("log_channel", c["log_channel"])
+        log = guild.get_channel(int(log_id)) if log_id else None
         if log:
             try:
                 await log.send(embed=web_embed("Ticket Closed", summary, DARK),
@@ -302,8 +365,8 @@ class Tickets(commands.Cog):
         ticket = self.current_ticket(interaction)
         if ticket is None:
             return await fail(interaction, "Use this inside a ticket channel.")
-        if not self.is_staff(interaction.user):
-            return await fail(interaction, "Only staff can add people to a ticket. 🕷️")
+        if not self.is_staff(interaction.user, ticket):
+            return await fail(interaction, "Only this ticket's support staff can add people. 🕷️")
         await interaction.channel.set_permissions(user, view_channel=True, send_messages=True,
                                                   read_message_history=True, attach_files=True)
         await interaction.response.send_message(embed=web_embed("Member Added!", f"{user.mention} can now see this ticket. 🕸️", BLUE))
@@ -313,8 +376,8 @@ class Tickets(commands.Cog):
         ticket = self.current_ticket(interaction)
         if ticket is None:
             return await fail(interaction, "Use this inside a ticket channel.")
-        if not self.is_staff(interaction.user):
-            return await fail(interaction, "Only staff can remove people from a ticket. 🕷️")
+        if not self.is_staff(interaction.user, ticket):
+            return await fail(interaction, "Only this ticket's support staff can remove people. 🕷️")
         if user.id == ticket["opener"]:
             return await fail(interaction, "You can't remove the ticket owner. Close the ticket instead.")
         await interaction.channel.set_permissions(user, overwrite=None)
@@ -325,8 +388,8 @@ class Tickets(commands.Cog):
         ticket = self.current_ticket(interaction)
         if ticket is None:
             return await fail(interaction, "Use this inside a ticket channel.")
-        if not self.is_staff(interaction.user):
-            return await fail(interaction, "Only staff can rename tickets. 🕷️")
+        if not self.is_staff(interaction.user, ticket):
+            return await fail(interaction, "Only this ticket's support staff can rename it. 🕷️")
         clean = re.sub(r"[^a-z0-9-]+", "-", name.lower()).strip("-")
         if not clean:
             return await fail(interaction, "Use letters or numbers in the name.")

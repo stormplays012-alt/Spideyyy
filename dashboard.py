@@ -447,34 +447,95 @@ class Dashboard(commands.Cog):
         cog = self.bot.get_cog("Tickets")
         if not cog:
             raise web.HTTPServiceUnavailable(text="Tickets module is not loaded.")
-        if not cog.cfg(guild.id).get("category"):
-            raise web.HTTPBadRequest(text="Save ticket settings first.")
         try:
             body = await request.json()
             channel_id = _int(body.get("channel_id", 0), 1, 2**63 - 1, "channel_id")
         except Exception:
             raise web.HTTPBadRequest(text="Choose a text channel.")
-        channel = guild.get_channel(channel_id)
         discord = __import__("discord")
+        channel = guild.get_channel(channel_id)
         if not isinstance(channel, discord.TextChannel):
             raise web.HTTPBadRequest(text="Choose a valid text channel.")
         if not channel.permissions_for(guild.me).send_messages or not channel.permissions_for(guild.me).embed_links:
             raise web.HTTPForbidden(text="Spideyyy needs Send Messages and Embed Links in that channel.")
-        from tickets import TicketPanel
-        from theme import RED
+        cfg = cog.cfg(guild.id)
+        category_raw = body.get("category") or cfg.get("category")
+        category = guild.get_channel(int(category_raw)) if category_raw else None
+        if not isinstance(category, discord.CategoryChannel):
+            raise web.HTTPBadRequest(text="Choose a valid ticket category in the global settings or panel settings.")
         title = body.get("title", "Need Help?")
         description = body.get("description", "Press the button below to open a private ticket with our staff. 🕷️")
         button_label = body.get("button_label", "Open Ticket")
+        button_emoji = body.get("button_emoji", "🎫")
+        button_style = body.get("button_style", "primary")
+        color_raw = str(body.get("color", "#E53935")).strip().lstrip("#")
+        footer = body.get("footer", "Spideyyy Support")
+        author = body.get("author", "")
+        thumbnail = body.get("thumbnail", "")
+        ticket_message = body.get("ticket_message", "A staff member will be with you soon. 🕷️")
+        form_title = body.get("form_title", "Open a ticket 🎫")
+        question_lines = body.get("questions", "What do you need help with?\nDetails (optional)")
         if not isinstance(title, str) or not title.strip() or len(title) > 256:
             raise web.HTTPBadRequest(text="Panel title must be 1–256 characters.")
         if not isinstance(description, str) or not description.strip() or len(description) > 4096:
             raise web.HTTPBadRequest(text="Panel description must be 1–4096 characters.")
         if not isinstance(button_label, str) or not button_label.strip() or len(button_label) > 80:
             raise web.HTTPBadRequest(text="Button label must be 1–80 characters.")
-        discord = __import__("discord")
-        embed = discord.Embed(title=title.strip(), description=description.strip(), color=RED)
-        await channel.send(embed=embed, view=TicketPanel(button_label=button_label.strip()))
-        return web.json_response({"ok": True, "message": f"Custom ticket panel posted in #{channel.name}."})
+        if button_style not in {"primary", "secondary", "success", "danger"}:
+            raise web.HTTPBadRequest(text="Choose a supported button style.")
+        if len(color_raw) != 6 or any(c not in "0123456789abcdefABCDEF" for c in color_raw):
+            raise web.HTTPBadRequest(text="Embed colour must be a six-digit hex colour, such as #E53935.")
+        for name, value, limit in (("Footer", footer, 2048), ("Author", author, 256), ("Ticket message", ticket_message, 4000), ("Form title", form_title, 45)):
+            if not isinstance(value, str) or len(value) > limit:
+                raise web.HTTPBadRequest(text=f"{name} exceeds Discord's {limit}-character limit.")
+        if thumbnail and (not isinstance(thumbnail, str) or len(thumbnail) > 2048 or not thumbnail.startswith(("https://", "http://"))):
+            raise web.HTTPBadRequest(text="Thumbnail must be an HTTP(S) image URL under 2048 characters.")
+        if not isinstance(question_lines, str):
+            raise web.HTTPBadRequest(text="Questions must be entered one per line.")
+        questions_text = [line.strip() for line in question_lines.splitlines() if line.strip()]
+        if not questions_text or len(questions_text) > 5:
+            raise web.HTTPBadRequest(text="Enter between 1 and 5 form questions (one per line).")
+        if any(len(q) > 45 for q in questions_text):
+            raise web.HTTPBadRequest(text="Each form question label must be 45 characters or fewer.")
+        role_raw = body.get("support_role")
+        role = guild.get_role(int(role_raw)) if role_raw else None
+        support_roles = [role.id] if role else list(cfg.get("support_roles", []))
+        log_raw = body.get("log_channel")
+        log_channel = guild.get_channel(int(log_raw)) if log_raw else None
+        if log_raw and not isinstance(log_channel, discord.TextChannel):
+            raise web.HTTPBadRequest(text="Choose a valid transcript log text channel.")
+        max_open = _int(body.get("max_open", cfg.get("max_open", 1)), 1, 5, "max_open")
+        panel_id = secrets.token_hex(4)
+        panel_cfg = {
+            "panel_id": panel_id, "title": title.strip(), "description": description.strip(),
+            "button_label": button_label.strip(), "button_emoji": str(button_emoji or "")[:32],
+            "button_style": button_style, "color": int(color_raw, 16), "footer": footer,
+            "author": author, "thumbnail": thumbnail, "ticket_message": ticket_message,
+            "form_title": form_title or "Open a ticket", "questions": [
+                {"label": q, "style": "paragraph" if len(q) > 32 or "details" in q.lower() or "explain" in q.lower() else "short",
+                 "required": "optional" not in q.lower(), "max_length": 1000 if len(q) > 32 else 100}
+                for q in questions_text
+            ], "category": category.id, "support_roles": support_roles,
+            "log_channel": log_channel.id if log_channel else cfg.get("log_channel"), "max_open": max_open,
+            "post_channel": channel.id,
+        }
+        embed = discord.Embed(title=panel_cfg["title"], description=panel_cfg["description"], color=panel_cfg["color"])
+        if author.strip():
+            embed.set_author(name=author.strip())
+        if footer.strip():
+            embed.set_footer(text=footer.strip())
+        if thumbnail:
+            embed.set_thumbnail(url=thumbnail)
+        from tickets import TicketPanel
+        cfg.setdefault("panels", {})[panel_id] = panel_cfg
+        cog.save()
+        try:
+            await channel.send(embed=embed, view=TicketPanel(button_label=panel_cfg["button_label"], panel_id=panel_id, config=panel_cfg))
+        except Exception:
+            cfg["panels"].pop(panel_id, None)
+            cog.save()
+            raise
+        return web.json_response({"ok": True, "message": f"Ticket Studio panel posted in #{channel.name} with {len(questions_text)} form question(s).", "panel_id": panel_id})
 
     async def api_save_voicemaster(self, request: web.Request) -> web.Response:
         _, guild = await self._authorized_guild(request)
