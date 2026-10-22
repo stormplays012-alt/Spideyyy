@@ -278,14 +278,14 @@ class Dashboard(commands.Cog):
             fetch_errors.append(f"roles: {type(exc).__name__}: {exc}")
 
         # Compatibility fallback for discord.py variants whose HTTP helper names differ.
-        if channel_records is None:
+        if not channel_records:
             try:
                 fetched_channels = await guild.fetch_channels()
                 channel_records = [{"id": str(ch.id), "name": ch.name, "type": getattr(ch, "type", None)} for ch in fetched_channels]
             except Exception as exc:
                 fetch_errors.append(f"fetch_channels: {type(exc).__name__}: {exc}")
                 channel_records = [{"id": str(ch.id), "name": ch.name, "type": getattr(ch, "type", None)} for ch in guild.channels]
-        if role_records is None:
+        if not role_records:
             try:
                 fetched_roles = await guild.fetch_roles()
                 role_records = [{"id": str(r.id), "name": r.name} for r in fetched_roles]
@@ -299,6 +299,8 @@ class Dashboard(commands.Cog):
             if isinstance(value, int):
                 return value
             value = str(value or "").lower()
+            # Accept both raw API names ("text") and enum names ("channeltype.text").
+            value = value.rsplit(".", 1)[-1]
             return {"text": 0, "voice": 2, "category": 4, "news": 5, "announcement": 5}.get(value, -1)
 
         channels, categories, voice_channels = [], [], []
