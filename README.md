@@ -42,10 +42,25 @@
                 /interact kiss|pat|cuddle|poke|tickle|bite|kick|shoot|yeet|bonk|... @user
                 /react cry|laugh|wave|wink|blush|smile|smug|sleep|yawn|run|... [@user]
                 The target gets a "do it back" button.
+- Leveling:     /rank /leaderboard, /levelconfig ..., /levelreward ...
+- Welcome:      /welcome status|channel|message|goodbyechannel|goodbyemessage|autorole|minage|verify|test
+                and the look: /welcome text|title|footer|color|thumbnail|image|resetstyle
+- Tickets:      /ticket setup|panel|supportrole|add|remove|rename|close
 - AutoMod:      /automod status  (everything starts OFF)
   /automod toggle <module|all> on/off
   modules: spam, duplicates, links, invites, badwords, caps, mentions, emojis, zalgo
   /automod set, punishment, badwords, allowlist, ignorechannel, ignorerole,
   staff, strikes, clearstrikes, reset
 
-Data is saved in voicemaster.json, moderation.json, utility.json and automod.json (created automatically).
+## Customising the welcome message (staff with Manage Server)
+Use `/welcome test` after every change to preview exactly what new members will see.
+- `/welcome channel #welcome`   where it is sent (nothing is sent until you set this)
+- `/welcome text ...`           text ABOVE the embed. `{user}` here pings the new member (empty = none)
+- `/welcome title ...`          embed title      |  `/welcome message ...` the embed text
+- `/welcome footer ...`         small text at the bottom (empty = Spidey default, `off` = none)
+- `/welcome color #00ff99`      color strip      |  `/welcome thumbnail`  avatar / server icon / custom / none
+- `/welcome image`              big picture at the bottom: give a https:// link or upload a file (PNG/JPG/GIF/WEBP, 8 MB)
+Placeholders that work in text, title, message and footer: `{user}` `{name}` `{server}` `{count}` (type `\n` for a new line).
+Uploaded pictures are saved in the `welcome_images` folder next to bot.py. `/welcome resetstyle` restores the default look.
+
+Data is saved in .json files next to bot.py (created automatically) plus the welcome_images folder.
