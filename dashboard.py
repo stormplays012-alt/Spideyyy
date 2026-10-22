@@ -262,10 +262,25 @@ class Dashboard(commands.Cog):
         if voice_cog:
             vc = voice_cog.store.get_guild(gid) or {}
             config["voicemaster"] = {"category_id": vc.get("category_id"), "creator_id": vc.get("creator_id"), "enabled": bool(vc)}
-        channels = [{"id": str(ch.id), "name": ch.name} for ch in guild.text_channels]
-        categories = [{"id": str(ch.id), "name": ch.name} for ch in guild.categories]
-        voice_channels = [{"id": str(ch.id), "name": ch.name} for ch in guild.voice_channels]
-        roles = [{"id": str(r.id), "name": r.name} for r in guild.roles if not r.is_default()]
+        # Build dropdown data from Discord's live API rather than relying only on
+        # the local cache. A partially populated cache can otherwise make all
+        # ticket routing selects appear empty.
+        try:
+            fetched_channels = await guild.fetch_channels()
+        except Exception:
+            fetched_channels = list(guild.channels)
+        try:
+            fetched_roles = await guild.fetch_roles()
+        except Exception:
+            fetched_roles = list(guild.roles)
+        discord = __import__("discord")
+        channels = [{"id": str(ch.id), "name": ch.name} for ch in fetched_channels if isinstance(ch, discord.TextChannel)]
+        categories = [{"id": str(ch.id), "name": ch.name} for ch in fetched_channels if isinstance(ch, discord.CategoryChannel)]
+        voice_channels = [{"id": str(ch.id), "name": ch.name} for ch in fetched_channels if isinstance(ch, discord.VoiceChannel)]
+        roles = [{"id": str(r.id), "name": r.name} for r in fetched_roles if not r.is_default()]
+        channels.sort(key=lambda item: item["name"].lower())
+        categories.sort(key=lambda item: item["name"].lower())
+        roles.sort(key=lambda item: item["name"].lower())
         return web.json_response({"guild": {"id": str(gid), "name": guild.name}, "config": config, "channels": channels, "categories": categories, "voice_channels": voice_channels, "roles": roles})
 
     async def api_save_config(self, request: web.Request) -> web.Response:
