@@ -52,6 +52,9 @@ class Dashboard(commands.Cog):
             web.get("/api/guilds", self.api_guilds),
             web.get("/api/guild/{guild_id}/config", self.api_get_config),
             web.post("/api/guild/{guild_id}/config", self.api_save_config),
+            web.post("/api/guild/{guild_id}/tickets", self.api_save_tickets),
+            web.post("/api/guild/{guild_id}/tickets/panel", self.api_post_ticket_panel),
+            web.post("/api/guild/{guild_id}/voicemaster", self.api_save_voicemaster),
         ])
 
     async def cog_load(self) -> None:
@@ -238,8 +241,19 @@ class Dashboard(commands.Cog):
                 "cooldown": int(c["cooldown"]), "voice_xp": int(c["voice_xp"]),
                 "multiplier": float(c["multiplier"]), "announce": bool(c["announce"]),
             }
+        ticket_cog = self.bot.get_cog("Tickets")
+        if ticket_cog:
+            tc = ticket_cog.cfg(gid)
+            config["tickets"] = {"category": tc.get("category"), "support_roles": list(tc.get("support_roles", [])), "log_channel": tc.get("log_channel"), "max_open": int(tc.get("max_open", 1)), "counter": int(tc.get("counter", 0))}
+        voice_cog = self.bot.get_cog("VoiceMaster")
+        if voice_cog:
+            vc = voice_cog.store.get_guild(gid) or {}
+            config["voicemaster"] = {"category_id": vc.get("category_id"), "creator_id": vc.get("creator_id"), "enabled": bool(vc)}
         channels = [{"id": str(ch.id), "name": ch.name} for ch in guild.text_channels]
-        return web.json_response({"guild": {"id": str(gid), "name": guild.name}, "config": config, "channels": channels})
+        categories = [{"id": str(ch.id), "name": ch.name} for ch in guild.categories]
+        voice_channels = [{"id": str(ch.id), "name": ch.name} for ch in guild.voice_channels]
+        roles = [{"id": str(r.id), "name": r.name} for r in guild.roles if not r.is_default()]
+        return web.json_response({"guild": {"id": str(gid), "name": guild.name}, "config": config, "channels": channels, "categories": categories, "voice_channels": voice_channels, "roles": roles})
 
     async def api_save_config(self, request: web.Request) -> web.Response:
         _, guild = await self._authorized_guild(request)
@@ -335,6 +349,100 @@ class Dashboard(commands.Cog):
         if not changed:
             raise web.HTTPBadRequest(text="No supported settings were provided.")
         return web.json_response({"ok": True, "saved": changed})
+
+
+    async def api_save_tickets(self, request: web.Request) -> web.Response:
+        _, guild = await self._authorized_guild(request)
+        cog = self.bot.get_cog("Tickets")
+        if not cog:
+            raise web.HTTPServiceUnavailable(text="Tickets module is not loaded.")
+        try:
+            body = await request.json()
+        except Exception:
+            raise web.HTTPBadRequest(text="Expected JSON.")
+        category_raw = body.get("category")
+        role_raw = body.get("support_role")
+        log_raw = body.get("log_channel")
+        category = guild.get_channel(int(category_raw)) if category_raw else None
+        if not isinstance(category, __import__("discord").CategoryChannel):
+            raise web.HTTPBadRequest(text="Choose a valid ticket category.")
+        role = guild.get_role(int(role_raw)) if role_raw else None
+        if role is None:
+            raise web.HTTPBadRequest(text="Choose a support role.")
+        log_channel = guild.get_channel(int(log_raw)) if log_raw else None
+        if log_raw and not isinstance(log_channel, __import__("discord").TextChannel):
+            raise web.HTTPBadRequest(text="Choose a valid transcript text channel.")
+        max_open = _int(body.get("max_open", 1), 1, 5, "max_open")
+        cfg = cog.cfg(guild.id)
+        cfg["category"] = category.id
+        cfg["support_roles"] = [role.id]
+        cfg["log_channel"] = log_channel.id if log_channel else None
+        cfg["max_open"] = max_open
+        cog.save()
+        return web.json_response({"ok": True, "message": "Ticket settings saved."})
+
+    async def api_post_ticket_panel(self, request: web.Request) -> web.Response:
+        _, guild = await self._authorized_guild(request)
+        cog = self.bot.get_cog("Tickets")
+        if not cog:
+            raise web.HTTPServiceUnavailable(text="Tickets module is not loaded.")
+        if not cog.cfg(guild.id).get("category"):
+            raise web.HTTPBadRequest(text="Save ticket settings first.")
+        try:
+            body = await request.json()
+            channel_id = int(body.get("channel_id", 0))
+        except Exception:
+            raise web.HTTPBadRequest(text="Choose a text channel.")
+        channel = guild.get_channel(channel_id)
+        discord = __import__("discord")
+        if not isinstance(channel, discord.TextChannel):
+            raise web.HTTPBadRequest(text="Choose a valid text channel.")
+        if not channel.permissions_for(guild.me).send_messages or not channel.permissions_for(guild.me).embed_links:
+            raise web.HTTPForbidden(text="Spideyyy needs Send Messages and Embed Links in that channel.")
+        from tickets import TicketPanel
+        from theme import web_embed, RED
+        await channel.send(embed=web_embed("Need Help?", "Press the button below to open a private ticket with our staff. 🕷️", RED), view=TicketPanel())
+        return web.json_response({"ok": True, "message": f"Ticket panel posted in #{channel.name}."})
+
+    async def api_save_voicemaster(self, request: web.Request) -> web.Response:
+        _, guild = await self._authorized_guild(request)
+        cog = self.bot.get_cog("VoiceMaster")
+        if not cog:
+            raise web.HTTPServiceUnavailable(text="VoiceMaster module is not loaded.")
+        try:
+            body = await request.json()
+        except Exception:
+            raise web.HTTPBadRequest(text="Expected JSON.")
+        discord = __import__("discord")
+        action = body.get("action", "save")
+        if action == "disable":
+            old = cog.store.get_guild(guild.id)
+            if old:
+                ch = guild.get_channel(old.get("creator_id"))
+                if ch:
+                    try:
+                        await ch.delete(reason="VoiceMaster disabled from dashboard")
+                    except discord.HTTPException:
+                        pass
+                cog.store.remove_guild(guild.id)
+            return web.json_response({"ok": True, "message": "VoiceMaster disabled."})
+        try:
+            category_id = int(body.get("category_id", 0))
+        except (TypeError, ValueError):
+            raise web.HTTPBadRequest(text="Choose a category.")
+        category = guild.get_channel(category_id)
+        if not isinstance(category, discord.CategoryChannel):
+            raise web.HTTPBadRequest(text="Choose a valid category.")
+        old = cog.store.get_guild(guild.id)
+        old_creator = guild.get_channel(old.get("creator_id")) if old else None
+        if old_creator and isinstance(old_creator, discord.VoiceChannel) and old_creator.category_id == category.id:
+            return web.json_response({"ok": True, "message": "VoiceMaster is already configured in this category."})
+        try:
+            creator = await guild.create_voice_channel("🕸️ Join to Create", category=category, user_limit=1, reason="VoiceMaster configured from dashboard")
+        except discord.Forbidden:
+            raise web.HTTPForbidden(text="Spideyyy needs Manage Channels permission in that category.")
+        cog.store.set_guild(guild.id, category.id, creator.id)
+        return web.json_response({"ok": True, "message": f"VoiceMaster configured. Join-to-create channel: {creator.name}."})
 
 
 async def setup(bot: commands.Bot) -> None:
