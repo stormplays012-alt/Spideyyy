@@ -468,6 +468,24 @@ class Dashboard(commands.Cog):
         button_label = body.get("button_label", "Open Ticket")
         button_emoji = body.get("button_emoji", "🎫")
         button_style = body.get("button_style", "primary")
+        raw_buttons = body.get("buttons")
+        if raw_buttons is None:
+            raw_buttons = [{"label": button_label, "emoji": button_emoji, "style": button_style}]
+        if not isinstance(raw_buttons, list) or not 1 <= len(raw_buttons) <= 25:
+            raise web.HTTPBadRequest(text="Add between 1 and 25 buttons. Discord allows at most 5 buttons per row and 5 rows per message.")
+        buttons = []
+        for i, item in enumerate(raw_buttons):
+            if not isinstance(item, dict):
+                raise web.HTTPBadRequest(text=f"Button {i+1} is invalid.")
+            label = str(item.get("label", "")).strip()
+            emoji = str(item.get("emoji", ""))[:32]
+            style = str(item.get("style", "primary"))
+            if not label or len(label) > 80:
+                raise web.HTTPBadRequest(text=f"Button {i+1} needs a label between 1 and 80 characters.")
+            if style not in {"primary", "secondary", "success", "danger"}:
+                raise web.HTTPBadRequest(text=f"Button {i+1} has an unsupported style.")
+            buttons.append({"label": label, "emoji": emoji, "style": style})
+        form_enabled = bool(body.get("form_enabled", True))
         color_raw = str(body.get("color", "#E53935")).strip().lstrip("#")
         footer = body.get("footer", "Spideyyy Support")
         author = body.get("author", "")
@@ -479,10 +497,6 @@ class Dashboard(commands.Cog):
             raise web.HTTPBadRequest(text="Panel title must be 1–256 characters.")
         if not isinstance(description, str) or not description.strip() or len(description) > 4096:
             raise web.HTTPBadRequest(text="Panel description must be 1–4096 characters.")
-        if not isinstance(button_label, str) or not button_label.strip() or len(button_label) > 80:
-            raise web.HTTPBadRequest(text="Button label must be 1–80 characters.")
-        if button_style not in {"primary", "secondary", "success", "danger"}:
-            raise web.HTTPBadRequest(text="Choose a supported button style.")
         if len(color_raw) != 6 or any(c not in "0123456789abcdefABCDEF" for c in color_raw):
             raise web.HTTPBadRequest(text="Embed colour must be a six-digit hex colour, such as #E53935.")
         for name, value, limit in (("Footer", footer, 2048), ("Author", author, 256), ("Ticket message", ticket_message, 4000), ("Form title", form_title, 45)):
@@ -490,11 +504,14 @@ class Dashboard(commands.Cog):
                 raise web.HTTPBadRequest(text=f"{name} exceeds Discord's {limit}-character limit.")
         if thumbnail and (not isinstance(thumbnail, str) or len(thumbnail) > 2048 or not thumbnail.startswith(("https://", "http://"))):
             raise web.HTTPBadRequest(text="Thumbnail must be an HTTP(S) image URL under 2048 characters.")
+        embed_text_total = len(title) + len(description) + len(footer) + len(author)
+        if embed_text_total > 6000:
+            raise web.HTTPBadRequest(text="Combined panel embed text exceeds Discord's 6000-character total limit.")
         if not isinstance(question_lines, str):
             raise web.HTTPBadRequest(text="Questions must be entered one per line.")
         questions_text = [line.strip() for line in question_lines.splitlines() if line.strip()]
-        if not questions_text or len(questions_text) > 5:
-            raise web.HTTPBadRequest(text="Enter between 1 and 5 form questions (one per line).")
+        if form_enabled and (not questions_text or len(questions_text) > 5):
+            raise web.HTTPBadRequest(text="When the form is enabled, enter between 1 and 5 questions.")
         if any(len(q) > 45 for q in questions_text):
             raise web.HTTPBadRequest(text="Each form question label must be 45 characters or fewer.")
         role_raw = body.get("support_role")
@@ -508,14 +525,15 @@ class Dashboard(commands.Cog):
         panel_id = secrets.token_hex(4)
         panel_cfg = {
             "panel_id": panel_id, "title": title.strip(), "description": description.strip(),
-            "button_label": button_label.strip(), "button_emoji": str(button_emoji or "")[:32],
-            "button_style": button_style, "color": int(color_raw, 16), "footer": footer,
+            "button_label": buttons[0]["label"], "button_emoji": buttons[0]["emoji"],
+            "button_style": buttons[0]["style"], "buttons": buttons,
+            "form_enabled": form_enabled, "color": int(color_raw, 16), "footer": footer,
             "author": author, "thumbnail": thumbnail, "ticket_message": ticket_message,
             "form_title": form_title or "Open a ticket", "questions": [
                 {"label": q, "style": "paragraph" if len(q) > 32 or "details" in q.lower() or "explain" in q.lower() else "short",
                  "required": "optional" not in q.lower(), "max_length": 1000 if len(q) > 32 else 100}
                 for q in questions_text
-            ], "category": category.id, "support_roles": support_roles,
+            ] if form_enabled else [], "category": category.id, "support_roles": support_roles,
             "log_channel": log_channel.id if log_channel else cfg.get("log_channel"), "max_open": max_open,
             "post_channel": channel.id,
         }
@@ -535,7 +553,8 @@ class Dashboard(commands.Cog):
             cfg["panels"].pop(panel_id, None)
             cog.save()
             raise
-        return web.json_response({"ok": True, "message": f"Ticket Studio panel posted in #{channel.name} with {len(questions_text)} form question(s).", "panel_id": panel_id})
+        form_note = f"form with {len(questions_text)} question(s)" if form_enabled else "direct-open buttons (no form)"
+        return web.json_response({"ok": True, "message": f"Ticket Studio panel posted in #{channel.name} with {len(buttons)} button(s) and {form_note}.", "panel_id": panel_id})
 
     async def api_save_voicemaster(self, request: web.Request) -> web.Response:
         _, guild = await self._authorized_guild(request)

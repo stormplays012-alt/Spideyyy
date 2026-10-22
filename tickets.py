@@ -28,7 +28,6 @@ class OpenModal(discord.ui.Modal):
         self.question_inputs = []
         questions = panel.get("questions") or [
             {"label": "What do you need help with?", "style": "short", "required": True, "placeholder": "Briefly describe your issue"},
-            {"label": "Details (optional)", "style": "paragraph", "required": False, "placeholder": "Add any useful details"},
         ]
         # Discord supports at most five modal components. Never exceed it.
         for i, item in enumerate(questions[:5]):
@@ -67,30 +66,43 @@ class CloseModal(discord.ui.Modal, title="Close this ticket"):
 
 
 # ------------------------------------------------------------------ persistent views
+class TicketOpenButton(discord.ui.Button):
+    def __init__(self, label: str, emoji: str | None, style, panel_id: str | None, index: int):
+        custom_id = f"ticket:open:{panel_id}:{index}" if panel_id else "ticket:open"
+        super().__init__(label=label[:80] or "Open Ticket", emoji=emoji or None, style=style, custom_id=custom_id)
+        self.panel_id = panel_id
+        self.index = index
+
+    async def callback(self, interaction: discord.Interaction):
+        cog = interaction.client.get_cog("Tickets")
+        panel = {}
+        if self.panel_id:
+            panel = cog.cfg(interaction.guild_id).get("panels", {}).get(self.panel_id, {})
+        buttons = panel.get("buttons") or [{"label": panel.get("button_label", "Open Ticket"), "emoji": panel.get("button_emoji", "🎫"), "style": panel.get("button_style", "primary")}]
+        button_cfg = buttons[min(self.index, len(buttons)-1)] if buttons else {"label": "Open Ticket"}
+        if panel.get("form_enabled", True):
+            await interaction.response.send_modal(OpenModal(self.panel_id, panel))
+        else:
+            await cog.create_ticket(interaction, str(button_cfg.get("ticket_subject") or button_cfg.get("label") or "Support request")[:100], "", self.panel_id, [])
+
+
 class TicketPanel(discord.ui.View):
-    """Persistent panel button with a unique custom ID per panel."""
+    """Persistent ticket panel; Discord legacy messages allow at most 25 buttons (5 rows x 5)."""
     def __init__(self, button_label: str = "Open Ticket", panel_id: str | None = None, config: dict | None = None):
         super().__init__(timeout=None)
         self.panel_id = panel_id
         self.config = config or {}
         styles = {"primary": discord.ButtonStyle.primary, "secondary": discord.ButtonStyle.secondary,
                   "success": discord.ButtonStyle.success, "danger": discord.ButtonStyle.danger}
-        style = styles.get(str(self.config.get("button_style", "primary")), discord.ButtonStyle.primary)
-        custom_id = f"ticket:open:{panel_id}" if panel_id else "ticket:open"
-        button = discord.ui.Button(
-            label=(button_label.strip()[:80] or "Open Ticket"),
-            emoji=(str(self.config.get("button_emoji") or "🎫")[:32] or None),
-            style=style, custom_id=custom_id,
-        )
-        button.callback = self.open_ticket
-        self.add_item(button)
-
-    async def open_ticket(self, interaction: discord.Interaction):
-        cog = interaction.client.get_cog("Tickets")
-        panel = self.config
-        if self.panel_id:
-            panel = cog.cfg(interaction.guild_id).get("panels", {}).get(self.panel_id, self.config)
-        await interaction.response.send_modal(OpenModal(self.panel_id, panel))
+        buttons = self.config.get("buttons") or [{
+            "label": button_label, "emoji": self.config.get("button_emoji", "🎫"),
+            "style": self.config.get("button_style", "primary"),
+        }]
+        # Five rows of five buttons is Discord's limit for legacy View messages.
+        for i, item in enumerate(buttons[:25]):
+            style = styles.get(str(item.get("style", "primary")), discord.ButtonStyle.primary)
+            self.add_item(TicketOpenButton(str(item.get("label") or f"Open Ticket {i+1}"),
+                                           str(item.get("emoji") or "")[:32], style, panel_id, i))
 
 
 class TicketControls(discord.ui.View):
