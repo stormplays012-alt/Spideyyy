@@ -443,21 +443,32 @@ class Dashboard(commands.Cog):
         except Exception:
             raise web.HTTPBadRequest(text="Expected JSON.")
         category_raw = body.get("category")
-        role_raw = body.get("support_role")
+        role_values = body.get("support_roles")
+        if role_values is None:
+            role_values = [body.get("support_role")] if body.get("support_role") else []
+        if not isinstance(role_values, list) or not 1 <= len(role_values) <= 25:
+            raise web.HTTPBadRequest(text="Select between 1 and 25 support roles.")
+        roles = []
+        for raw_role in role_values:
+            try:
+                role = guild.get_role(int(raw_role))
+            except (TypeError, ValueError):
+                role = None
+            if role is None:
+                raise web.HTTPBadRequest(text="One of the selected support roles is invalid.")
+            if role not in roles:
+                roles.append(role)
         log_raw = body.get("log_channel")
         category = guild.get_channel(int(category_raw)) if category_raw else None
         if not isinstance(category, __import__("discord").CategoryChannel):
             raise web.HTTPBadRequest(text="Choose a valid ticket category.")
-        role = guild.get_role(int(role_raw)) if role_raw else None
-        if role is None:
-            raise web.HTTPBadRequest(text="Choose a support role.")
         log_channel = guild.get_channel(int(log_raw)) if log_raw else None
         if log_raw and not isinstance(log_channel, __import__("discord").TextChannel):
             raise web.HTTPBadRequest(text="Choose a valid transcript text channel.")
         max_open = _int(body.get("max_open", 1), 1, 5, "max_open")
         cfg = cog.cfg(guild.id)
         cfg["category"] = category.id
-        cfg["support_roles"] = [role.id]
+        cfg["support_roles"] = [role.id for role in roles]
         cfg["log_channel"] = log_channel.id if log_channel else None
         cfg["max_open"] = max_open
         cog.save()
@@ -554,9 +565,26 @@ class Dashboard(commands.Cog):
             raise web.HTTPBadRequest(text="When the form is enabled, enter between 1 and 5 questions.")
         if any(len(q) > 45 for q in questions_text):
             raise web.HTTPBadRequest(text="Each form question label must be 45 characters or fewer.")
-        role_raw = body.get("support_role")
-        role = guild.get_role(int(role_raw)) if role_raw else None
-        support_roles = [role.id] if role else list(cfg.get("support_roles", []))
+        role_values = body.get("support_roles")
+        if role_values is None:
+            role_values = [body.get("support_role")] if body.get("support_role") else []
+        support_roles = []
+        if role_values:
+            if not isinstance(role_values, list) or len(role_values) > 25:
+                raise web.HTTPBadRequest(text="Select up to 25 support roles.")
+            for raw_role in role_values:
+                try:
+                    role = guild.get_role(int(raw_role))
+                except (TypeError, ValueError):
+                    role = None
+                if role is None:
+                    raise web.HTTPBadRequest(text="One of the selected support roles is invalid.")
+                if role.id not in support_roles:
+                    support_roles.append(role.id)
+        else:
+            support_roles = list(cfg.get("support_roles", []))
+        if not support_roles:
+            raise web.HTTPBadRequest(text="Select at least one support role for this panel.")
         log_raw = body.get("log_channel")
         log_channel = guild.get_channel(int(log_raw)) if log_raw else None
         if log_raw and not isinstance(log_channel, discord.TextChannel):
