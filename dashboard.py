@@ -237,6 +237,10 @@ class Dashboard(commands.Cog):
             c = welcome_cog.cfg(gid)
             config["welcome"] = {
                 "welcome_channel": c.get("welcome_channel"),
+                "welcome_enabled": bool(c.get("welcome_enabled", True)),
+                "goodbye_enabled": bool(c.get("goodbye_enabled", True)),
+                "auto_roles_enabled": bool(c.get("auto_roles_enabled", True)),
+                "auto_roles": list(c.get("auto_roles", [])),
                 "welcome_title": c.get("welcome_title", "New Arrival!"),
                 "welcome_message": c.get("welcome_message", ""),
                 "welcome_text": c.get("welcome_text", ""),
@@ -355,6 +359,23 @@ class Dashboard(commands.Cog):
                 raise web.HTTPBadRequest(text="Welcome settings are unavailable.")
             c = cog.cfg(gid)
             text_fields = {"welcome_title": 200, "welcome_message": 1500, "welcome_text": 1000, "goodbye_message": 1500}
+            for key in ("welcome_enabled", "goodbye_enabled", "auto_roles_enabled"):
+                if key in payload:
+                    if not isinstance(payload[key], bool):
+                        raise web.HTTPBadRequest(text=f"{key} must be true or false.")
+                    c[key] = payload[key]
+            if "auto_roles" in payload:
+                values = payload["auto_roles"]
+                if not isinstance(values, list) or len(values) > 25:
+                    raise web.HTTPBadRequest(text="Choose up to 25 join roles.")
+                roles = []
+                for raw in values:
+                    role_id = _int(raw, 1, 2**63 - 1, "auto_roles")
+                    role = guild.get_role(role_id)
+                    if role is None or role.is_default() or role.managed or role >= guild.me.top_role:
+                        raise web.HTTPBadRequest(text=f"Spideyyy cannot assign role {role_id}. Check role hierarchy and managed roles.")
+                    roles.append(role_id)
+                c["auto_roles"] = list(dict.fromkeys(roles))
             for key, max_len in text_fields.items():
                 if key in payload:
                     value = payload[key]
@@ -484,7 +505,26 @@ class Dashboard(commands.Cog):
                 raise web.HTTPBadRequest(text=f"Button {i+1} needs a label between 1 and 80 characters.")
             if style not in {"primary", "secondary", "success", "danger"}:
                 raise web.HTTPBadRequest(text=f"Button {i+1} has an unsupported style.")
-            buttons.append({"label": label, "emoji": emoji, "style": style})
+            ticket_message_item = item.get("ticket_message", "")
+            if not isinstance(ticket_message_item, str) or len(ticket_message_item) > 4000:
+                raise web.HTTPBadRequest(text=f"Button {i+1}: first ticket message must be at most 4000 characters.")
+            button_form_enabled = item.get("form_enabled", body.get("form_enabled", True))
+            if not isinstance(button_form_enabled, bool):
+                raise web.HTTPBadRequest(text=f"Button {i+1}: form toggle must be on or off.")
+            button_questions = item.get("questions", [])
+            if not isinstance(button_questions, list) or len(button_questions) > 5:
+                raise web.HTTPBadRequest(text=f"Button {i+1}: forms support up to five questions.")
+            cleaned_questions = []
+            for qi, question in enumerate(button_questions):
+                if isinstance(question, str):
+                    question = {"label": question}
+                if not isinstance(question, dict):
+                    raise web.HTTPBadRequest(text=f"Button {i+1}: invalid form question.")
+                qlabel = str(question.get("label", "")).strip()
+                if not qlabel or len(qlabel) > 45:
+                    raise web.HTTPBadRequest(text=f"Button {i+1}: each form question label must be 1–45 characters.")
+                cleaned_questions.append({"label": qlabel, "style": question.get("style", "paragraph" if any(w in qlabel.lower() for w in ("detail", "explain", "reason")) else "short"), "required": bool(question.get("required", "optional" not in qlabel.lower())), "max_length": min(4000, max(1, int(question.get("max_length", 1000 if "paragraph" in str(question.get("style", "")) else 100))))})
+            buttons.append({"label": label, "emoji": emoji, "style": style, "ticket_message": ticket_message_item, "form_enabled": button_form_enabled, "form_title": str(item.get("form_title", body.get("form_title", "Open a ticket 🎫")) )[:45], "questions": cleaned_questions})
         form_enabled = bool(body.get("form_enabled", True))
         color_raw = str(body.get("color", "#E53935")).strip().lstrip("#")
         footer = body.get("footer", "Spideyyy Support")
@@ -522,6 +562,14 @@ class Dashboard(commands.Cog):
         if log_raw and not isinstance(log_channel, discord.TextChannel):
             raise web.HTTPBadRequest(text="Choose a valid transcript log text channel.")
         max_open = _int(body.get("max_open", cfg.get("max_open", 1)), 1, 5, "max_open")
+        default_questions = [{"label": q, "style": "paragraph" if len(q) > 32 or any(w in q.lower() for w in ("details", "explain", "reason")) else "short", "required": "optional" not in q.lower(), "max_length": 1000 if len(q) > 32 else 100} for q in questions_text]
+        for button in buttons:
+            if button.get("form_enabled") and not button.get("questions"):
+                button["questions"] = default_questions
+            if not button.get("ticket_message"):
+                button["ticket_message"] = ticket_message
+            if not button.get("form_title"):
+                button["form_title"] = form_title or "Open a ticket"
         panel_id = secrets.token_hex(4)
         panel_cfg = {
             "panel_id": panel_id, "title": title.strip(), "description": description.strip(),

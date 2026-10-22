@@ -16,6 +16,9 @@ DATA_FILE = "welcome.json"
 
 DEFAULTS = {
     "welcome_channel": None,
+    "welcome_enabled": True,
+    "goodbye_enabled": True,
+    "auto_roles_enabled": True,
     "welcome_message": "{line}\n\nWelcome {user} to **{server}**! You're member **#{count}**. 🕷️",
     "goodbye_channel": None,
     "goodbye_message": "**{name}** swung out of the web. 🕸️ We're now **{count}** members.",
@@ -651,7 +654,7 @@ class Welcome(commands.Cog):
 
         # auto-roles
         roles = [r for r in (member.guild.get_role(i) for i in c["auto_roles"])
-                 if r and not r.managed and r < member.guild.me.top_role]
+                 if r and not r.managed and r < member.guild.me.top_role] if c.get("auto_roles_enabled", True) else []
         if roles:
             try:
                 await member.add_roles(*roles, reason="Spidey auto-role")
@@ -659,7 +662,7 @@ class Welcome(commands.Cog):
                 pass
 
         # welcome message
-        channel = member.guild.get_channel(c["welcome_channel"]) if c["welcome_channel"] else None
+        channel = member.guild.get_channel(c["welcome_channel"]) if c.get("welcome_enabled", True) and c["welcome_channel"] else None
         if channel:
             content, embed, files = build_welcome(member, c)
             try:      # only the new member can be pinged by the text above the embed
@@ -673,7 +676,7 @@ class Welcome(commands.Cog):
         if member.bot:
             return
         c = self.cfg(member.guild.id)
-        channel = member.guild.get_channel(c["goodbye_channel"]) if c["goodbye_channel"] else None
+        channel = member.guild.get_channel(c["goodbye_channel"]) if c.get("goodbye_enabled", True) and c["goodbye_channel"] else None
         if channel:
             try:
                 await channel.send(embed=web_embed("Goodbye!", render(c["goodbye_message"], member), DARK))

@@ -20,11 +20,15 @@ DEFAULT_CFG = {"category": None, "support_roles": [], "log_channel": None, "coun
 # ------------------------------------------------------------------ modals
 class OpenModal(discord.ui.Modal):
     """Ticket form with Discord-safe limits (modal title <=45; max 5 inputs)."""
-    def __init__(self, panel_id: str | None = None, panel: dict | None = None):
+    def __init__(self, panel_id: str | None = None, panel: dict | None = None, button_index: int = 0):
         panel = panel or {}
+        buttons = panel.get("buttons") or []
+        button_cfg = buttons[button_index] if button_index < len(buttons) else {}
+        panel = {**panel, **{k: button_cfg[k] for k in ("form_title", "questions", "form_enabled") if k in button_cfg}}
         title = str(panel.get("form_title") or "Open a ticket 🎫")[:45]
         super().__init__(title=title, timeout=300)
         self.panel_id = panel_id
+        self.button_index = button_index
         self.question_inputs = []
         questions = panel.get("questions") or [
             {"label": "What do you need help with?", "style": "short", "required": True, "placeholder": "Briefly describe your issue"},
@@ -54,7 +58,7 @@ class OpenModal(discord.ui.Modal):
         answers = [(label, str(field).strip()) for label, field in self.question_inputs]
         subject = next((v for k, v in answers if "help" in k.lower() or "subject" in k.lower() or "issue" in k.lower()), answers[0][1])
         details = "\n".join(f"**{k}:** {v}" for k, v in answers if v and v != subject)
-        await cog.create_ticket(interaction, subject[:100] or "Support request", details, self.panel_id, answers)
+        await cog.create_ticket(interaction, subject[:100] or "Support request", details, self.panel_id, answers, self.button_index)
 
 
 class CloseModal(discord.ui.Modal, title="Close this ticket"):
@@ -80,10 +84,11 @@ class TicketOpenButton(discord.ui.Button):
             panel = cog.cfg(interaction.guild_id).get("panels", {}).get(self.panel_id, {})
         buttons = panel.get("buttons") or [{"label": panel.get("button_label", "Open Ticket"), "emoji": panel.get("button_emoji", "🎫"), "style": panel.get("button_style", "primary")}]
         button_cfg = buttons[min(self.index, len(buttons)-1)] if buttons else {"label": "Open Ticket"}
-        if panel.get("form_enabled", True):
-            await interaction.response.send_modal(OpenModal(self.panel_id, panel))
+        form_enabled = bool(button_cfg.get("form_enabled", panel.get("form_enabled", True)))
+        if form_enabled:
+            await interaction.response.send_modal(OpenModal(self.panel_id, panel, self.index))
         else:
-            await cog.create_ticket(interaction, str(button_cfg.get("ticket_subject") or button_cfg.get("label") or "Support request")[:100], "", self.panel_id, [])
+            await cog.create_ticket(interaction, str(button_cfg.get("ticket_subject") or button_cfg.get("label") or "Support request")[:100], "", self.panel_id, [], self.index)
 
 
 class TicketPanel(discord.ui.View):
@@ -187,10 +192,12 @@ class Tickets(commands.Cog):
             self.save()
 
     # ================================================================ CREATING
-    async def create_ticket(self, interaction: discord.Interaction, subject: str, details: str, panel_id: str | None = None, answers=None):
+    async def create_ticket(self, interaction: discord.Interaction, subject: str, details: str, panel_id: str | None = None, answers=None, button_index: int = 0):
         guild, user = interaction.guild, interaction.user
         c = self.cfg(guild.id)
         panel = c.get("panels", {}).get(panel_id, {}) if panel_id else {}
+        panel_buttons = panel.get("buttons") or []
+        button_cfg = panel_buttons[button_index] if button_index < len(panel_buttons) else {}
         category_id = panel.get("category", c["category"])
         category = guild.get_channel(int(category_id)) if category_id else None
         support_ids = panel.get("support_roles", c["support_roles"])
@@ -230,11 +237,11 @@ class Tickets(commands.Cog):
         self.data["tickets"][str(channel.id)] = {
             "guild": guild.id, "channel": channel.id, "opener": user.id, "number": number,
             "subject": subject, "claimed_by": None, "created": int(time.time()), "panel_id": panel_id,
-            "answers": answers or [],
+            "answers": answers or [], "button_index": button_index,
         }
         self.save()
 
-        intro = str(panel.get("ticket_message") or "A staff member will be with you soon. 🕷️")[:4000]
+        intro = str(button_cfg.get("ticket_message", panel.get("ticket_message")) or "A staff member will be with you soon. 🕷️")[:4000]
         embed = web_embed(f"Ticket #{number}", f"**Subject:** {subject}\n" + (f"{details}\n" if details else "")
                           + f"\n{intro}", BLUE)
         embed.set_author(name=user.display_name, icon_url=user.display_avatar.url)
