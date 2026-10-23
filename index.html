@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bot Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#13151d;--panel:#1a1d28;--line:#2a2e3d;--tx:#e8e9f0;--mu:#8b90a3;--ac:#4de3b0;--acx:#0c2a20;--bad:#ff7a7a}
+@media (prefers-color-scheme:light){:root{--bg:#f3f4f8;--panel:#fff;--line:#dfe2ec;--tx:#1b1e2b;--mu:#656a80;--ac:#0f9f72;--acx:#d9f5ea;--bad:#c93a3a}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 Sora,system-ui,sans-serif}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
+.hide{display:none!important}
+.login{min-height:100vh;display:grid;place-items:center;padding:24px;text-align:center}
+.login h1{font-size:clamp(2rem,6vw,3.4rem);letter-spacing:-.03em;margin:0 0 12px;max-width:14ch;margin-inline:auto;line-height:1.05}
+.login p{color:var(--mu);margin:0 auto 28px;max-width:40ch}
+.btn{border:0;border-radius:10px;padding:11px 18px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-block}
+.dc{background:#5865F2;color:#fff;padding:14px 26px}.pri{background:var(--ac);color:#06241a}.ghost{background:none;border:1px solid var(--line)}
+.err{color:var(--bad);margin-top:16px}
+header{display:flex;align-items:center;gap:12px;padding:14px 24px;border-bottom:1px solid var(--line)}
+header b{flex:1}.av{width:32px;height:32px;border-radius:50%;background:var(--line)}
+.wrap{max-width:1000px;margin:0 auto;padding:28px 24px}
+.servers{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
+.srv{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;display:flex;gap:12px;align-items:center;cursor:pointer;text-align:left;width:100%}
+.srv img,.srv i{width:44px;height:44px;border-radius:12px;background:var(--line);display:grid;place-items:center;font-style:normal;font-weight:700;flex:none}
+.srv small{display:block;color:var(--mu)}
+.layout{display:grid;grid-template-columns:190px 1fr;gap:28px}
+nav{display:flex;flex-direction:column;gap:4px;position:sticky;top:16px;align-self:start}
+nav button{background:none;border:0;text-align:left;padding:10px 12px;border-radius:9px;cursor:pointer;color:var(--mu)}
+nav button.on{background:var(--acx);color:var(--ac);font-weight:600}
+.sec{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:6px 20px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:20px;padding:16px 0;border-bottom:1px solid var(--line)}
+.row:last-child{border:0}.row label{font-weight:600}.row small{display:block;color:var(--mu);font-weight:400}
+.row.col{flex-direction:column;align-items:stretch;gap:8px}
+input[type=text],input[type=number],select,textarea{background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:9px 11px;min-width:200px;width:100%;max-width:300px}
+.col input,.col textarea{max-width:none}textarea{min-height:84px;resize:vertical}
+.sw{position:relative;width:44px;height:25px;flex:none}.sw input{position:absolute;inset:0;opacity:0;margin:0;cursor:pointer;z-index:1}
+.sw span{position:absolute;inset:0;background:var(--line);border-radius:99px;transition:.15s}
+.sw span:after{content:"";position:absolute;top:3px;left:3px;width:19px;height:19px;background:#fff;border-radius:50%;transition:.15s}
+.sw input:checked+span{background:var(--ac)}.sw input:checked+span:after{transform:translateX(19px)}
+.sw input:focus-visible+span{outline:2px solid var(--ac);outline-offset:2px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 28px}
+.bar{position:fixed;left:0;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--line);padding:12px 24px;display:flex;justify-content:flex-end;align-items:center;gap:14px;transform:translateY(110%);transition:.2s}
+.bar.show{transform:none}.toast{color:var(--ac)}
+h2{margin:0 0 16px;font-size:1.5rem;letter-spacing:-.02em}
+@media(max-width:720px){.layout{grid-template-columns:1fr}nav{flex-direction:row;overflow-x:auto;position:static}nav button{white-space:nowrap}.grid2{grid-template-columns:1fr}.row{flex-wrap:wrap}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+</style></head><body>
+
+<section id="login" class="login hide"><div>
+  <h1>Run your bot from one place</h1>
+  <p>Log in with Discord to pick a server and change how your bot behaves there. No commands needed.</p>
+  <a class="btn dc" href="/auth/login">Log in with Discord</a>
+  <div id="loginErr" class="err"></div>
+</div></section>
+
+<section id="app" class="hide">
+  <header><b id="title">Dashboard</b><span id="uname"></span><img class="av" id="uav" alt=""><a class="btn ghost" href="/auth/logout">Log out</a></header>
+  <div class="wrap">
+    <div id="picker"><h2>Choose a server</h2><div class="servers" id="servers"></div></div>
+    <div id="panel" class="hide">
+      <button class="btn ghost" id="back" style="margin-bottom:20px">Change server</button>
+      <div class="layout"><nav id="nav"></nav><div><h2 id="secTitle"></h2><div class="sec" id="fields"></div></div></div>
+    </div>
+  </div>
+  <div class="bar" id="bar"><span class="toast" id="toast"></span><button class="btn ghost" id="reset">Discard</button><button class="btn pri" id="save">Save changes</button></div>
+</section>
+
+<script>
+const $=id=>document.getElementById(id);
+const api=async(u,o)=>{const r=await fetch(u,o);const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Request failed');return j};
+// Each field: [key, label, type, hint, options]. type: text|number|bool|area|select|channel|role
+const SCHEMA={
+ general:{title:'General',f:[
+  ['prefix','Command prefix','text','Used before text commands'],
+  ['language','Language','select','',[['en','English'],['hi','Hindi'],['es','Spanish'],['fr','French'],['de','German']]],
+  ['nickname','Bot nickname','text','Leave blank to use the default name'],
+  ['status','Status','select','',[['online','Online'],['idle','Idle'],['dnd','Do not disturb'],['invisible','Invisible']]],
+  ['activityType','Activity','select','',[['playing','Playing'],['watching','Watching'],['listening','Listening to'],['competing','Competing in']]],
+  ['activityText','Activity text','text','Shown under the bot name']]},
+ welcome:{title:'Welcome & leave',f:[
+  ['enabled','Send welcome messages','bool'],['channel','Welcome channel','channel'],
+  ['message','Welcome message','area','Use {user} and {server}'],['embed','Send as embed','bool'],
+  ['autoRole','Role for new members','role'],['leaveEnabled','Send leave messages','bool'],['leaveMessage','Leave message','area','Use {user} and {server}']]},
+ moderation:{title:'Moderation',f:[
+  ['logChannel','Mod log channel','channel'],['antiSpam','Block spam','bool','Deletes repeated messages'],
+  ['antiLinks','Block links','bool'],['antiInvites','Block Discord invites','bool'],['capsFilter','Limit excess caps','bool'],
+  ['badWords','Filter bad words','bool'],['badWordList','Blocked words','area','Separate with commas'],
+  ['warnLimit','Warnings before punishment','number'],
+  ['punishment','Punishment','select','',[['mute','Mute'],['kick','Kick'],['ban','Ban']]],['mutedRole','Muted role','role']]},
+ leveling:{title:'Leveling',f:[
+  ['enabled','Enable leveling','bool'],['xpRate','XP multiplier','number','1 is normal speed'],
+  ['announce','Announce level-ups','bool'],['announceChannel','Level-up channel','channel','Blank = same channel as the message'],
+  ['roleRewards','Role rewards','area','One per line, like: 5=Regular']]},
+ commands:{title:'Commands',f:Object.keys({help:1,ping:1,userinfo:1,serverinfo:1,avatar:1,poll:1,ban:1,kick:1,mute:1,warn:1,clear:1,rank:1}).map(c=>[c,'/'+c,'bool'])}
+};
+let CID="";fetch("/api/config").then(r=>r.json()).then(j=>CID=j.clientId);
+let G=null,S=null,ORIG=null,TAB='general',META=null;
+const dirty=()=>{$('bar').classList.toggle('show',JSON.stringify(S)!==JSON.stringify(ORIG));$('toast').textContent=''};
+const iconUrl=g=>g.icon?`https://cdn.discordapp.com/icons/${g.id}/${g.icon}.png?size=64`:null;
+
+async function init(){
+  const q=new URLSearchParams(location.search).get('error');
+  const {user}=await api('/api/me');
+  if(!user){$('login').classList.remove('hide');if(q)$('loginErr').textContent=q==='state'?'Login expired. Try again.':'Discord login failed. Try again.';return}
+  $('app').classList.remove('hide');$('uname').textContent=user.global_name||user.username;
+  if(user.avatar)$('uav').src=`https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=64`;
+  loadServers();
+}
+async function loadServers(){
+  $('servers').textContent='Loading servers…';
+  try{const gs=await api('/api/guilds');$('servers').innerHTML='';
+    if(!gs.length)$('servers').textContent='You do not manage any servers yet.';
+    gs.forEach(g=>{const b=document.createElement('button');b.className='srv';
+      b.innerHTML=`${iconUrl(g)?`<img src="${iconUrl(g)}" alt="">`:`<i>${g.name[0]}</i>`}<span><b></b><small>${g.botIn?'Open settings':'Invite bot first'}</small></span>`;
+      b.querySelector('b').textContent=g.name;
+      b.onclick=()=>g.botIn?openGuild(g):window.open(`https://discord.com/oauth2/authorize?client_id=${CID}&scope=bot%20applications.commands&permissions=8&guild_id=${g.id}`,'_blank');
+      $('servers').append(b)})}
+  catch(e){$('servers').textContent=e.message}
+}
+async function openGuild(g){
+  try{META=await api('/api/guilds/'+g.id)}catch(e){return alert(e.message)}
+  G=g;S=META.settings;ORIG=JSON.parse(JSON.stringify(S));
+  $('picker').classList.add('hide');$('panel').classList.remove('hide');$('title').textContent=g.name;
+  $('nav').innerHTML='';Object.entries(SCHEMA).forEach(([k,v])=>{const b=document.createElement('button');b.textContent=v.title;b.dataset.k=k;b.onclick=()=>{TAB=k;render()};$('nav').append(b)});
+  render();
+}
+function field(sec,[key,label,type,hint,opts]){
+  const row=document.createElement('div');row.className='row'+(type==='area'?' col':'');
+  row.innerHTML=`<div><label for="f_${key}"></label><small></small></div>`;
+  row.querySelector('label').textContent=label;row.querySelector('small').textContent=hint||'';
+  let el;const v=S[sec][key];
+  if(type==='bool'){const w=document.createElement('div');w.className='sw';w.innerHTML='<input type="checkbox" role="switch"><span></span>';el=w.firstChild;el.checked=v;row.append(w)}
+  else if(type==='area'){el=document.createElement('textarea');el.value=v;row.append(el)}
+  else if(type==='select'||type==='channel'||type==='role'){el=document.createElement('select');
+    const list=type==='channel'?[['','None'],...META.channels.map(c=>[c.id,'#'+c.name])]:type==='role'?[['','None'],...META.roles.map(r=>[r.id,r.name])]:opts;
+    list.forEach(([a,b])=>el.add(new Option(b,a)));el.value=v;row.append(el)}
+  else{el=document.createElement('input');el.type=type==='number'?'number':'text';el.value=v;row.append(el)}
+  el.id='f_'+key;
+  el.oninput=el.onchange=()=>{S[sec][key]=type==='bool'?el.checked:type==='number'?Number(el.value):el.value;dirty()};
+  return row;
+}
+function render(){
+  document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.k===TAB));
+  $('secTitle').textContent=SCHEMA[TAB].title;$('fields').innerHTML='';
+  const box=TAB==='commands'?Object.assign(document.createElement('div'),{className:'grid2'}):$('fields');
+  SCHEMA[TAB].f.forEach(f=>box.append(field(TAB,f)));if(box!==$('fields'))$('fields').append(box);
+}
+$('save').onclick=async()=>{try{await api(`/api/guilds/${G.id}/settings`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(S)});
+  ORIG=JSON.parse(JSON.stringify(S));$('toast').textContent='Saved';setTimeout(()=>$('bar').classList.remove('show'),1200)}catch(e){$('toast').textContent=e.message}};
+$('reset').onclick=()=>{S=JSON.parse(JSON.stringify(ORIG));render();dirty()};
+$('back').onclick=()=>{$('panel').classList.add('hide');$('picker').classList.remove('hide');$('title').textContent='Dashboard';$('bar').classList.remove('show')};
+init();
+</script></body></html>
