@@ -64,3 +64,11 @@ Placeholders that work in text, title, message and footer: `{user}` `{name}` `{s
 Uploaded pictures are saved in the `welcome_images` folder next to bot.py. `/welcome resetstyle` restores the default look.
 
 Data is saved in .json files next to bot.py (created automatically) plus the welcome_images folder.
+
+## 🖥️ Web dashboard
+Log in with Discord and edit AutoMod, Welcome, Leveling, Moderation log, Tickets and Suggestions from a browser.
+Changes go straight into the same settings your /commands use, so they apply instantly.
+1. Developer Portal > OAuth2: copy the **Client Secret** and add a **Redirect** (example: `http://localhost:3000/auth/callback`).
+2. Set environment variables next to `DISCORD_TOKEN`:
+   `CLIENT_SECRET=...`  `REDIRECT_URI=http://localhost:3000/auth/callback`  (optional `DASHBOARD_PORT=3000`)
+3. `python bot.py`, then open http://localhost:3000
