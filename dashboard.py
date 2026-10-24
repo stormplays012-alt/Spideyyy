@@ -714,8 +714,22 @@ header{gap:12px}header #title{min-width:0;overflow:hidden;text-overflow:ellipsis
   .fs.on.open{display:block;position:absolute;left:0;right:0;top:100%;width:auto;padding:10px 14px;background:#121215f5;border-bottom:1px solid var(--line);z-index:40;animation:pop .2s both}
   .fs.open .fsres{left:14px;right:14px;top:calc(100% - 2px)}
 }
+.mbar{display:none;flex:none;align-items:center;gap:12px;padding:0 0 14px}
+.mb{width:44px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--panel);display:grid;place-items:center;cursor:pointer;transition:border-color .2s,transform .2s}
+.mb:hover{border-color:var(--ac)}.mb:active{transform:scale(.9)}.mb svg{width:20px;height:20px;fill:none;stroke:var(--tx);stroke-width:2.4;stroke-linecap:round}
+#mtitle{font-weight:600;font-size:1.05rem}
+.scrim{position:fixed;inset:0;z-index:70;background:#000b;backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);opacity:0;pointer-events:none;transition:opacity .3s}.scrim.show{opacity:1;pointer-events:auto}
+@media(max-width:720px){
+  #app>.wrap{z-index:auto}
+  .mbar{display:flex}
+  .layout{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
+  .layout nav{position:fixed;left:0;top:0;bottom:0;width:min(84vw,320px);z-index:80;flex-direction:column;overflow-x:hidden;overflow-y:auto;padding:18px 14px 36px;background:var(--panel);border-right:1px solid var(--line);box-shadow:0 0 60px #000c;transform:translateX(-105%);transition:transform .35s cubic-bezier(.3,1,.4,1);align-self:auto}
+  .layout nav.open{transform:none}
+  .ng{display:block}.nsrv{display:flex}.glide{display:block}
+  nav button{white-space:normal}nav button.on{background:none}
+}
 </style></head><body>
-<div class="prog" id="prog"></div><div class="boot" id="boot"></div>
+<div class="prog" id="prog"></div><div class="scrim" id="scrim"></div><div class="boot" id="boot"></div>
 <section id="login" class="login hide"><div class="hang"><i class="cord"></i><img class="medal" src="/logo.jpg" alt="Spidey"></div><div class="in">
   <h1>Spidey</h1>
   <p>Your server's control room. Tune AutoMod, welcomes, levels and tickets here instead of typing commands.</p>
@@ -732,7 +746,7 @@ header{gap:12px}header #title{min-width:0;overflow:hidden;text-overflow:ellipsis
   </header>
   <div class="wrap">
     <div id="picker"><div class="hero"><h2 id="hello">Hey</h2><p>Pick a server to manage. Servers with Spidey come first.</p><input id="q" type="search" placeholder="Search your servers"></div><div class="servers" id="servers"></div></div>
-    <div id="panel" class="hide"><div class="layout"><nav id="nav"></nav><div id="main"><h2 id="secTitle"></h2><p class="hint" id="secDesc"></p><div id="fields"></div></div></div></div>
+    <div id="panel" class="hide"><div class="mbar"><button class="mb" id="menubtn" aria-label="Open menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg></button><span id="mtitle"></span></div><div class="layout"><nav id="nav"></nav><div id="main"><h2 id="secTitle"></h2><p class="hint" id="secDesc"></p><div id="fields"></div></div></div></div>
   </div>
   <div class="pop" id="bar" role="status"><span id="popmsg">You have unsaved changes</span><button class="btn ghost" id="reset">Reset</button><button class="btn pri" id="save"><span id="savetxt">Save</span><span class="dots"><i></i><i></i><i></i></span></button></div>
 </section>
@@ -812,7 +826,8 @@ function renderSpecial(k){
     go.onclick=async()=>{try{await api(`/api/guilds/${G.id}/announce`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel:ch.value,title:ti.value,message:ms.value})});out.className='toast';out.textContent='Sent.';ms.value=''}catch(e){out.className='toast bad';out.textContent=e.message}};
   }
 }
-function switchTab(k){if(cur().dirty()&&!confirm('Discard unsaved changes?'))return;if(ORIG[TAB])VAL[TAB]=clone(ORIG[TAB]);CTL=null;PREV=null;TAB=k;render();touch();$('main').scrollTo({top:0})}
+function drawer(o){$('nav').classList.toggle('open',o);$('scrim').classList.toggle('show',o)}
+function switchTab(k){if(cur().dirty()&&!confirm('Discard unsaved changes?'))return;if(ORIG[TAB])VAL[TAB]=clone(ORIG[TAB]);CTL=null;PREV=null;drawer(false);TAB=k;render();touch();$('main').scrollTo({top:0})}
 function field(sec,f){
   const row=document.createElement('div');row.className='row'+(f.type==='area'||f.type==='lines'||f.type.startsWith('multi')?' col':'');
   row.innerHTML='<div><label></label><small></small></div>';row.querySelector('label').textContent=f.label;row.querySelector('small').textContent=f.hint||'';
@@ -835,7 +850,7 @@ function field(sec,f){
 }
 function render(){
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.k===TAB));moveGlide();
-  $('secDesc').textContent=DESC[TAB]||'';
+  $('secDesc').textContent=DESC[TAB]||'';$('mtitle').textContent=TITLES[TAB]||'';
   if(!SCHEMA.some(x=>x.id===TAB))return renderSpecial(TAB);
   const s=SCHEMA.find(x=>x.id===TAB);$('secTitle').textContent=TITLES[TAB]||s.title;$('fields').innerHTML='';
   let grp=null,box=null;
@@ -850,7 +865,7 @@ $('save').onclick=async()=>{if(busy)return;busy=true;const b=$('bar');b.classLis
     setTimeout(()=>{if(!cur().dirty()){b.classList.remove('show');setTimeout(()=>b.classList.remove('ok'),400)}},1700)}
   catch(e){busy=false;b.classList.remove('saving');b.classList.add('bad');$('popmsg').textContent=e.message}};
 $('reset').onclick=()=>{if(busy)return;cur().reset();touch()};
-function goBack(){if(cur().dirty()&&!confirm('Discard unsaved changes?'))return;CTL=null;PREV=null;$('fs').classList.remove('on');$('bar').classList.remove('show');$('panel').classList.add('hide');$('picker').classList.remove('hide');$('title').textContent='Spidey Dashboard';loadServers()}
+function goBack(){drawer(false);if(cur().dirty()&&!confirm('Discard unsaved changes?'))return;CTL=null;PREV=null;$('fs').classList.remove('on');$('bar').classList.remove('show');$('panel').classList.add('hide');$('picker').classList.remove('hide');$('title').textContent='Spidey Dashboard';loadServers()}
 $('fields').addEventListener('input',touch);$('fields').addEventListener('change',touch);
 addEventListener('beforeunload',e=>{if(cur().dirty()){e.preventDefault();e.returnValue=''}});
 function countUp(n,v){const num=parseFloat(v);if(isNaN(num))return;const suf=String(v).replace(/[\d.]/g,''),t0=performance.now();
@@ -942,7 +957,7 @@ function fsearch(){const q=$('fsearch').value.trim().toLowerCase(),r=$('fsres');
   if(!hits.length){const d=el('div','empty','No feature found');d.style.padding='14px';r.append(d)}
   hits.forEach(([k,t])=>{const b=el('button');b.append(el('span','ico',ICON[k]),el('span','',t));b.onclick=()=>{$('fsearch').value='';r.classList.remove('open');$('fs').classList.remove('open');switchTab(k)};r.append(b)});r.classList.add('open')}
 $('fsearch').oninput=fsearch;$('fsearch').onkeydown=e=>{if(e.key==='Enter'){const b=$('fsres').querySelector('button');if(b)b.click()}};
-addEventListener('keydown',e=>{const t=document.activeElement.tagName;if(e.key==='/'&&t!=='INPUT'&&t!=='TEXTAREA'&&t!=='SELECT'&&!$('panel').classList.contains('hide')){e.preventDefault();$('fsearch').focus()}if(e.key==='Escape'){$('fsres').classList.remove('open');$('fs').classList.remove('open');$('umenu').classList.remove('open');$('fsearch').blur()}});
+addEventListener('keydown',e=>{const t=document.activeElement.tagName;if(e.key==='/'&&t!=='INPUT'&&t!=='TEXTAREA'&&t!=='SELECT'&&!$('panel').classList.contains('hide')){e.preventDefault();$('fsearch').focus()}if(e.key==='Escape'){drawer(false);$('fsres').classList.remove('open');$('fs').classList.remove('open');$('umenu').classList.remove('open');$('fsearch').blur()}});
 document.addEventListener('click',e=>{if(!e.target.closest('.fs'))$('fsres').classList.remove('open');const b=e.target.closest('.btn');if(b){const r=b.getBoundingClientRect(),d=Math.max(r.width,r.height),x=el('span','ripple');x.style.cssText=`width:${d}px;height:${d}px;left:${e.clientX-r.left-d/2}px;top:${e.clientY-r.top-d/2}px`;b.append(x);setTimeout(()=>x.remove(),650)}});
 document.addEventListener('pointermove',e=>{const t=e.target.closest&&e.target.closest('.srv,.stat,.pcard,.qa button,.sec,.bcard');if(t){const r=t.getBoundingClientRect();t.style.setProperty('--mx',(e.clientX-r.left)+'px');t.style.setProperty('--my',(e.clientY-r.top)+'px')}});
 async function renderCases(){
@@ -1039,6 +1054,10 @@ $('login').prepend(webSvg(),webSvg('r'));document.body.append(webSvg('bgweb'));
 $('avb').onclick=e=>{e.stopPropagation();$('umenu').classList.toggle('open')};
 $('fsbtn').onclick=e=>{e.stopPropagation();const f=$('fs');f.classList.toggle('open');if(f.classList.contains('open'))setTimeout(()=>$('fsearch').focus(),60)};
 document.addEventListener('click',e=>{if(!e.target.closest('.um'))$('umenu').classList.remove('open');if(!e.target.closest('.fs,#fsbtn'))$('fs').classList.remove('open')});
+$('menubtn').onclick=()=>drawer(true);$('scrim').onclick=()=>drawer(false);
+addEventListener('resize',()=>{if(innerWidth>720)drawer(false)});
+let tx=0,ty=0;addEventListener('touchstart',e=>{tx=e.touches[0].clientX;ty=e.touches[0].clientY},{passive:true});
+addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-tx,dy=e.changedTouches[0].clientY-ty;if(dx<-60&&Math.abs(dy)<Math.abs(dx)*.6)drawer(false)},{passive:true});
 const setHH=()=>{const hd=document.querySelector('#app>header');if(hd)document.documentElement.style.setProperty('--hh',hd.offsetHeight+'px')};
 addEventListener('resize',setHH);new ResizeObserver(setHH).observe(document.querySelector('#app>header'));
 showBoot('Waking Spidey up');init0().catch(()=>{}).finally(()=>setTimeout(hideBoot,300));
