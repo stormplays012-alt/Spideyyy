@@ -1287,7 +1287,7 @@ function rrEditor(p){
   PREV=()=>{pv.innerHTML='';const hd=el('div','dhead'),im=el('img');im.src='/logo.jpg';im.alt='';hd.append(im,el('b','','Spidey'),el('span','tag','BOT'));pv.append(hd);
     const bx=el('div','emb'),bd=el('div','embody');bx.style.borderLeftColor=D.color;if(D.title)bd.append(el('div','eti',D.title));if(D.description)bd.append(el('div','ede',D.description));bx.append(bd);pv.append(bx);
     if(D.mode==='dropdown')pv.append(el('div','selmock','Choose your roles...  \u25be'));
-    else{const r=el('div','dbtns');D.items.forEach(x=>r.append(el('span',D.mode==='buttons'?'dbtn secondary':'rx',D.mode==='buttons'?`${x.emoji||''} ${x.label||roleName(x.role)}`.trim():(x.emoji||'?'))));pv.append(r)}};
+    else{const r=el('div','dbtns');D.items.forEach(x=>r.append(el('span',D.mode==='buttons'?'dbtn secondary':'rx',D.mode==='buttons'?`${x.emoji||''} ${x.label||(x.emoji?'':roleName(x.role))}`.trim():(x.emoji||'?'))));pv.append(r)}};
   PREV();
   const hints={buttons:'Each role gets its own button. Tap to get the role, tap again to remove it.',dropdown:'One menu where members tick the roles they want.',reactions:'Members react to the message with an emoji to get the role.'};
   let b=el('div','sec');const col=el('input'),ms=fS(D,'mode',Object.entries(RRMODE)),hint=el('small','',hints[D.mode]);col.type='color';col.value=D.color;
@@ -1297,7 +1297,7 @@ function rrEditor(p){
   L.append(el('h3','','Roles'));const iw=el('div');L.append(iw);
   const drawI=()=>{iw.innerHTML='';hint.textContent=hints[D.mode];
     D.items.forEach((x,i)=>{const c=el('div','qcard'),t2=el('div','two'),em=fT(x,'emoji',64),lb=fT(x,'label',80),rs=fS(x,'role',optsOf(META.roles,'Choose a role'));
-      em.placeholder='Emoji';lb.placeholder=D.mode==='reactions'?'Name (optional)':'Button text';t2.append(em,lb);c.append(t2,rs);
+      em.placeholder='Emoji';lb.placeholder=D.mode==='reactions'?'Name (optional)':D.mode==='dropdown'?'Option text':'Button text (empty = emoji only)';t2.append(em,lb);c.append(t2,rs);
       if(D.mode==='dropdown'){const ds=fT(x,'description',100);ds.placeholder='Short description (optional)';c.append(ds)}
       if(D.items.length>1){const rm=el('button','btn ghost sm','Remove');rm.onclick=()=>{D.items.splice(i,1);drawI();touch()};c.append(rm)}iw.append(c)});
     if(D.items.length<(D.mode==='reactions'?20:25)){const ad=el('button','btn ghost','Add role');ad.style.marginTop='14px';ad.onclick=()=>{D.items.push(newItem());drawI();touch()};iw.append(ad)}};
