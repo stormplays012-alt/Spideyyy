@@ -728,6 +728,12 @@ header{gap:12px}header #title{min-width:0;overflow:hidden;text-overflow:ellipsis
   .ng{display:block}.nsrv{display:flex}.glide{display:block}
   nav button{white-space:normal}nav button.on{background:none}
 }
+.greet{animation:pop .5s both;margin-bottom:6px}
+.greet h1{font-size:clamp(1.7rem,5.5vw,2.7rem);letter-spacing:-.035em;line-height:1.1;margin:0 0 6px;overflow-wrap:anywhere}
+.greet .nm{color:var(--ac);text-shadow:0 0 28px #e0222d55}
+.greet p{color:var(--mu);margin:0 0 22px}
+.wave{display:inline-block;transform-origin:70% 75%;animation:wave 2.4s ease-in-out .6s 2}
+@keyframes wave{0%,60%,100%{transform:rotate(0)}10%{transform:rotate(16deg)}20%{transform:rotate(-8deg)}30%{transform:rotate(16deg)}40%{transform:rotate(-4deg)}50%{transform:rotate(10deg)}}
 </style></head><body>
 <div class="prog" id="prog"></div><div class="scrim" id="scrim"></div><div class="boot" id="boot"></div>
 <section id="login" class="login hide"><div class="hang"><i class="cord"></i><img class="medal" src="/logo.jpg" alt="Spidey"></div><div class="in">
@@ -746,7 +752,7 @@ header{gap:12px}header #title{min-width:0;overflow:hidden;text-overflow:ellipsis
   </header>
   <div class="wrap">
     <div id="picker"><div class="hero"><h2 id="hello">Hey</h2><p>Pick a server to manage. Servers with Spidey come first.</p><input id="q" type="search" placeholder="Search your servers"></div><div class="servers" id="servers"></div></div>
-    <div id="panel" class="hide"><div class="mbar"><button class="mb" id="menubtn" aria-label="Open menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg></button><span id="mtitle"></span></div><div class="layout"><nav id="nav"></nav><div id="main"><h2 id="secTitle"></h2><p class="hint" id="secDesc"></p><div id="fields"></div></div></div></div>
+    <div id="panel" class="hide"><div class="mbar"><button class="mb" id="menubtn" aria-label="Open menu"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h10"/></svg></button><span id="mtitle"></span></div><div class="layout"><nav id="nav"></nav><div id="main"><div class="greet hide" id="greet"></div><h2 id="secTitle"></h2><p class="hint" id="secDesc"></p><div id="fields"></div></div></div></div>
   </div>
   <div class="pop" id="bar" role="status"><span id="popmsg">You have unsaved changes</span><button class="btn ghost" id="reset">Reset</button><button class="btn pri" id="save"><span id="savetxt">Save</span><span class="dots"><i></i><i></i><i></i></span></button></div>
 </section>
@@ -763,7 +769,7 @@ async function init0(){
   const {user}=await api('/api/me');
   if(!user){$('login').classList.remove('hide');if(q)$('loginErr').textContent=q==='state'?'Login expired. Try again.':'Discord login failed. Try again.';return}
   [SCHEMA,{clientId:CID}]=await Promise.all([api('/api/schema'),api('/api/config')]);
-  $('app').classList.remove('hide');$('uname').textContent=user.global_name||user.username;$('hello').textContent='Hey, '+(user.global_name||user.username);
+  $('app').classList.remove('hide');$('uname').textContent=user.global_name||user.username;window.ME=user.global_name||user.username;$('hello').textContent='Hey, '+window.ME;
   $('uav').src=user.avatar?`https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=64`:`https://cdn.discordapp.com/embed/avatars/${Number((BigInt(user.id)>>22n)%6n)}.png`;
   loadServers();
 }
@@ -826,6 +832,9 @@ function renderSpecial(k){
     go.onclick=async()=>{try{await api(`/api/guilds/${G.id}/announce`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel:ch.value,title:ti.value,message:ms.value})});out.className='toast';out.textContent='Sent.';ms.value=''}catch(e){out.className='toast bad';out.textContent=e.message}};
   }
 }
+function showGreet(){const g=$('greet');if(TAB!=='overview'){g.classList.add('hide');return}
+  g.classList.remove('hide');g.innerHTML='';const t=el('h1');t.append('Welcome, ',el('span','nm',window.ME||'there'),' ',el('span','wave','\ud83d\udc4b'));
+  g.append(t,el('p','',`Here is how ${G.name} is doing today.`))}
 function drawer(o){$('nav').classList.toggle('open',o);$('scrim').classList.toggle('show',o)}
 function switchTab(k){if(cur().dirty()&&!confirm('Discard unsaved changes?'))return;if(ORIG[TAB])VAL[TAB]=clone(ORIG[TAB]);CTL=null;PREV=null;drawer(false);TAB=k;render();touch();$('main').scrollTo({top:0})}
 function field(sec,f){
@@ -850,7 +859,7 @@ function field(sec,f){
 }
 function render(){
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.k===TAB));moveGlide();
-  $('secDesc').textContent=DESC[TAB]||'';$('mtitle').textContent=TITLES[TAB]||'';
+  $('secDesc').textContent=DESC[TAB]||'';$('mtitle').textContent=TITLES[TAB]||'';showGreet();
   if(!SCHEMA.some(x=>x.id===TAB))return renderSpecial(TAB);
   const s=SCHEMA.find(x=>x.id===TAB);$('secTitle').textContent=TITLES[TAB]||s.title;$('fields').innerHTML='';
   let grp=null,box=null;
