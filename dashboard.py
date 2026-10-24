@@ -615,7 +615,7 @@ nav button{transition:background .15s,color .15s,padding .15s}nav>button:hover{c
 .toast{color:var(--ac)}.toast.bad{color:var(--bad)}
 .wrap{max-width:1180px}.layout{grid-template-columns:240px 1fr}
 .hero{margin-bottom:24px}.hero h2{font-size:clamp(1.9rem,5vw,2.8rem);letter-spacing:-.035em;margin:0 0 6px}.hero p{color:var(--mu);margin:0 0 18px}
-#q{max-width:380px;padding:12px 18px;border-radius:99px}
+#q{max-width:380px}
 .servers{grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:16px}
 .srv{position:relative;overflow:hidden;flex-direction:column;align-items:flex-start;gap:14px;padding:20px;min-height:158px;animation:pop .45s both}
 .srv::before{content:"";position:absolute;inset:-24px;background:var(--ic,none) center/cover;opacity:.2;filter:blur(24px);z-index:0}
@@ -651,7 +651,7 @@ nav>button{position:relative;z-index:1}nav button.on{background:none;box-shadow:
 @keyframes shim{to{background-position:-200% 0}}
 .sw span:after{transition:transform .35s cubic-bezier(.3,1.6,.5,1)}
 .pop.ok #popmsg::before{content:"\2713  ";display:inline-block;animation:tick .45s cubic-bezier(.3,1.8,.5,1)}@keyframes tick{from{transform:scale(0) rotate(-45deg)}}
-.fs{position:relative;width:min(300px,36vw);display:none}.fs.on{display:block}.fs input{width:100%;max-width:none;padding:8px 16px;border-radius:99px}
+.fs{position:relative;width:min(300px,36vw);display:none}.fs.on{display:block}.fs input{width:100%;max-width:none;padding-top:8px;padding-bottom:8px}
 .fsres{position:absolute;top:calc(100% + 8px);left:0;right:0;background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;display:none;z-index:30;box-shadow:0 16px 44px #000b}
 .fsres.open{display:block;animation:pop .2s both}.fsres button{display:flex;gap:10px;width:100%;padding:11px 14px;background:none;border:0;text-align:left;cursor:pointer}.fsres button:hover{background:var(--acx)}
 .row.case{cursor:pointer;transition:background .15s}.row.case:hover{background:#ffffff08}.row.case>div{flex:1}.row.case .go{color:var(--mu);font-size:.85rem;transition:transform .2s,color .2s}.row.case:hover .go{transform:translateX(4px);color:var(--ac)}
@@ -693,6 +693,14 @@ html,body{height:100%;overflow:hidden}
 .lg{transform-origin:24px 27px;animation:legs .4s ease-in-out infinite alternate}.lg.r{animation-direction:alternate-reverse}
 @keyframes legs{from{transform:rotate(-8deg)}to{transform:rotate(8deg)}}@keyframes bob{0%,100%{transform:translateY(-16px)}50%{transform:translateY(8px)}}
 .boot{position:fixed;inset:0;z-index:100;display:grid;place-items:center;background:#0b0b16;color:#a9acc9;transition:opacity .45s}.boot.gone{opacity:0;pointer-events:none}
+html{color-scheme:dark}
+input[type=search]{-webkit-appearance:none;appearance:none;width:100%;background:#0e0e12 url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a69a9d' stroke-width='2.4' stroke-linecap='round'><circle cx='11' cy='11' r='7'/><path d='M20 20l-3.5-3.5'/></svg>") no-repeat 15px center/18px;color:var(--tx);-webkit-text-fill-color:var(--tx);caret-color:var(--ac);border:1px solid var(--line);border-radius:99px;padding:11px 16px 11px 44px;transition:border-color .2s,box-shadow .2s,background-color .2s}
+input[type=search]::placeholder{color:var(--mu);-webkit-text-fill-color:var(--mu);opacity:1}
+input[type=search]:hover{border-color:#e0222d66}
+input[type=search]:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 3px #e0222d33;background-color:#15151a}
+input[type=search]::-webkit-search-decoration,input[type=search]::-webkit-search-results-button{display:none}
+input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;cursor:pointer;background:#3a2a2f url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f2eced' stroke-width='3' stroke-linecap='round'><path d='M6 6l12 12M18 6L6 18'/></svg>") center/10px no-repeat}
+input:-webkit-autofill,textarea:-webkit-autofill{-webkit-box-shadow:0 0 0 100px #0e0e12 inset;-webkit-text-fill-color:var(--tx)}
 </style></head><body>
 <div class="prog" id="prog"></div><div class="boot" id="boot"></div>
 <section id="login" class="login hide"><div class="hang"><i class="cord"></i><img class="medal" src="/logo.jpg" alt="Spidey"></div><div class="in">
