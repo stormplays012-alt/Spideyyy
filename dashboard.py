@@ -1,9 +1,17 @@
 """Spidey web dashboard (single file). Put this next to bot.py, then in bot.py: await self.load_extension("dashboard")
 Env needed: CLIENT_SECRET, REDIRECT_URI (optional DASHBOARD_PORT). Edits your cogs' live settings."""
-import os, sys, secrets, base64, aiohttp, discord
+import os, sys, json, secrets, base64, aiohttp, discord
 from urllib.parse import urlencode
 from aiohttp import web
 from discord.ext import commands
+
+_TF = "dashboard_data.json"   # message templates are stored here (next to your other .json files)
+def _tload():
+    try:
+        with open(_TF, encoding="utf8") as f: return json.load(f)
+    except (FileNotFoundError, ValueError): return {}
+def _tsave(d):
+    with open(_TF, "w", encoding="utf8") as f: json.dump(d, f, indent=1)
 
 # ================= settings <-> your cogs =================
 from automod import MODULES   # your automod.py
@@ -217,7 +225,7 @@ def build(bot) -> web.Application:
     async def me(request): return J({"user": request["s"].get("user")})
     async def schema(request): return deny(request) or J(M.schema())
     async def guilds(request):
-        return deny(request) or J([{"id": g["id"], "name": g["name"], "icon": g.get("icon"), "botIn": bot.get_guild(int(g["id"])) is not None} for g in request["s"]["guild_list"]])
+        return deny(request) or J([{"id": g["id"], "name": g["name"], "icon": g.get("icon"), "botIn": bot.get_guild(int(g["id"])) is not None, "members": getattr(bot.get_guild(int(g["id"])), "member_count", 0)} for g in request["s"]["guild_list"]])
 
     async def guild_get(request):
         gid = request.match_info["id"]
@@ -364,13 +372,116 @@ def build(bot) -> web.Application:
         p["channel"], p["message_id"] = ch.id, msg.id; T.save()
         return J({"ok": True})
 
+    async def cases_get(request):
+        gid = request.match_info["id"]
+        if (e := deny(request, gid)): return e
+        Mo, g = bot.get_cog("Moderation"), bot.get_guild(int(gid))
+        if not Mo: return J({"error": "The Moderation module is not loaded"}, status=404)
+        return J([{"id": c["id"], "type": c["type"], "user": _name(g, c["user"]), "user_id": str(c["user"]), "mod": _name(g, c["mod"]), "reason": str(c["reason"])[:500],
+                   "time": c["time"], "active": bool(c.get("active"))} for c in Mo.store.guild(g.id)["cases"][::-1][:300]])
+
+    def case_of(request):
+        gid = request.match_info["id"]
+        if (e := deny(request, gid)): return e, None, None
+        Mo = bot.get_cog("Moderation")
+        if not Mo: return J({"error": "The Moderation module is not loaded"}, status=404), None, None
+        c = next((x for x in Mo.store.guild(int(gid))["cases"] if str(x["id"]) == request.match_info["cid"]), None)
+        return (None, Mo, (int(gid), c)) if c else (J({"error": "Case not found"}, status=404), None, None)
+
+    async def case_put(request):
+        e, Mo, gc = case_of(request)
+        if e: return e
+        gc[1]["reason"] = str((await request.json()).get("reason", "")).strip()[:500] or "No reason provided"; Mo.store.save()
+        return J({"ok": True})
+
+    async def case_delete(request):
+        e, Mo, gc = case_of(request)
+        if e: return e
+        Mo.store.guild(gc[0])["cases"].remove(gc[1]); Mo.store.save()
+        return J({"ok": True})
+
+    def clean_tpl(d, old):
+        t = lambda v, n: str(v or "").strip()[:n]
+        def url(v):
+            v = t(v, 500)
+            if v and not v.startswith("https://"): raise ValueError("Links must start with https://")
+            return v
+        out = {"name": t(d.get("name"), 60) or "Template", "content": t(d.get("content"), 2000), "embeds": [], "buttons": []}
+        for e in (d.get("embeds") or [])[:3]:
+            col = t(e.get("color"), 7)
+            out["embeds"].append({"title": t(e.get("title"), 256), "description": t(e.get("description"), 4000), "color": col if len(col) == 7 and col[0] == "#" else "#e0222d",
+                                  "author": t(e.get("author"), 256), "footer": t(e.get("footer"), 2048), "image": url(e.get("image")), "thumbnail": url(e.get("thumbnail")),
+                                  "fields": [{"name": t(f.get("name"), 256), "value": t(f.get("value"), 1024), "inline": bool(f.get("inline"))} for f in (e.get("fields") or [])[:10]
+                                             if t(f.get("name"), 256) and t(f.get("value"), 1024)]})
+        for b in (d.get("buttons") or [])[:5]:
+            if t(b.get("label"), 80) and url(b.get("url")): out["buttons"].append({"label": t(b.get("label"), 80), "url": url(b.get("url")), "emoji": t(b.get("emoji"), 32)})
+        if not out["content"] and not any(x["title"] or x["description"] or x["image"] or x["fields"] for x in out["embeds"]): raise ValueError("Add some text or an embed first")
+        for k in ("channel", "message_id"):
+            if old.get(k): out[k] = old[k]
+        return out
+
+    def tpl_msg(tp):
+        embeds = []
+        for x in tp["embeds"]:
+            em = discord.Embed(title=x["title"] or None, description=x["description"] or None, color=int(x["color"].lstrip("#"), 16))
+            if x["author"]: em.set_author(name=x["author"])
+            if x["footer"]: em.set_footer(text=x["footer"])
+            if x["image"]: em.set_image(url=x["image"])
+            if x["thumbnail"]: em.set_thumbnail(url=x["thumbnail"])
+            for f in x["fields"]: em.add_field(name=f["name"], value=f["value"], inline=f["inline"])
+            embeds.append(em)
+        view = discord.ui.View(timeout=None)
+        for b in tp["buttons"]: view.add_item(discord.ui.Button(style=discord.ButtonStyle.link, label=b["label"], url=b["url"], emoji=b["emoji"] or None))
+        return tp["content"] or None, embeds, view
+
+    async def tpl_get(request):
+        gid = request.match_info["id"]
+        if (e := deny(request, gid)): return e
+        return J([{**v, "id": k} for k, v in _tload().get(gid, {}).items()])
+
+    async def tpl_put(request):
+        gid = request.match_info["id"]
+        if (e := deny(request, gid)): return e
+        d = _tload(); T = d.setdefault(gid, {}); tid = request.match_info["tid"]
+        try: data = clean_tpl(await request.json(), T.get(tid, {}))
+        except (ValueError, TypeError, AttributeError) as ex: return J({"error": str(ex) or "Invalid template"}, status=400)
+        if tid not in T: tid = "t" + secrets.token_hex(3)
+        T[tid] = data; _tsave(d)
+        if data.get("message_id"):
+            try:
+                ch = bot.get_guild(int(gid)).get_channel(int(data["channel"])); msg = await ch.fetch_message(int(data["message_id"])); c, em, v = tpl_msg(data)
+                await msg.edit(content=c, embeds=em, view=v if data["buttons"] else None)
+            except Exception: pass
+        return J({"id": tid})
+
+    async def tpl_delete(request):
+        gid = request.match_info["id"]
+        if (e := deny(request, gid)): return e
+        d = _tload(); d.get(gid, {}).pop(request.match_info["tid"], None); _tsave(d)
+        return J({"ok": True})
+
+    async def tpl_send(request):
+        gid = request.match_info["id"]
+        if (e := deny(request, gid)): return e
+        g = bot.get_guild(int(gid)); d = _tload(); tp = d.get(gid, {}).get(request.match_info["tid"]); ch = g.get_channel(int((await request.json()).get("channel") or 0))
+        if not tp or not ch: return J({"error": "Save the template and pick a channel first"}, status=400)
+        try:
+            c, em, v = tpl_msg(tp); msg = None
+            if tp.get("message_id") and tp.get("channel") == ch.id:
+                try: msg = await ch.fetch_message(int(tp["message_id"])); await msg.edit(content=c, embeds=em, view=v if tp["buttons"] else None)
+                except discord.NotFound: msg = None
+            if msg is None: msg = await ch.send(content=c, embeds=em, **({"view": v} if tp["buttons"] else {}))
+        except discord.HTTPException: return J({"error": "Discord rejected the message. Check the emoji, links and my permissions in that channel."}, status=400)
+        tp["channel"], tp["message_id"] = ch.id, msg.id; _tsave(d)
+        return J({"ok": True})
+
     async def logo(request): return web.Response(body=base64.b64decode(LOGO_B64), content_type="image/jpeg", headers={"Cache-Control": "public, max-age=86400"})
 
     async def index(request): return web.Response(text=INDEX_HTML, content_type="text/html")
     app = web.Application(middlewares=[session_mw])
     app.add_routes([web.get("/", index), web.get("/auth/login", login), web.get("/auth/callback", callback), web.get("/auth/logout", logout),
         web.get("/api/config", config), web.get("/api/me", me), web.get("/api/schema", schema), web.get("/api/guilds", guilds),
-        web.get("/api/guilds/{id}", guild_get), web.get("/api/guilds/{id}/overview", overview), web.get("/logo.jpg", logo), web.get("/api/guilds/{id}/panels", panels_get), web.put("/api/guilds/{id}/panels/{pid}", panel_put), web.delete("/api/guilds/{id}/panels/{pid}", panel_delete), web.post("/api/guilds/{id}/panels/{pid}/post", panel_post), web.post("/api/guilds/{id}/announce", announce), web.put("/api/guilds/{id}/{sec}", section_put)])
+        web.get("/api/guilds/{id}", guild_get), web.get("/api/guilds/{id}/overview", overview), web.get("/logo.jpg", logo), web.get("/api/guilds/{id}/cases", cases_get), web.put("/api/guilds/{id}/cases/{cid}", case_put), web.delete("/api/guilds/{id}/cases/{cid}", case_delete), web.get("/api/guilds/{id}/templates", tpl_get), web.put("/api/guilds/{id}/templates/{tid}", tpl_put), web.delete("/api/guilds/{id}/templates/{tid}", tpl_delete), web.post("/api/guilds/{id}/templates/{tid}/send", tpl_send), web.get("/api/guilds/{id}/panels", panels_get), web.put("/api/guilds/{id}/panels/{pid}", panel_put), web.delete("/api/guilds/{id}/panels/{pid}", panel_delete), web.post("/api/guilds/{id}/panels/{pid}/post", panel_post), web.post("/api/guilds/{id}/announce", announce), web.put("/api/guilds/{id}/{sec}", section_put)])
     from urllib.parse import urlparse
     path = (urlparse(REDIRECT or "").path or "").rstrip("/")
     if path and path not in ("/auth/callback", "") and not any(getattr(r, "resource", None) and r.resource.canonical == path for r in app.router.routes()):
@@ -429,8 +540,6 @@ input[type=text],input[type=number],select,textarea{background:var(--bg);border:
 .sw span:after{content:"";position:absolute;top:3px;left:3px;width:19px;height:19px;background:#fff;border-radius:50%;transition:.15s}
 .sw input:checked+span{background:var(--ac)}.sw input:checked+span:after{transform:translateX(19px)}
 .sw input:focus-visible+span{outline:2px solid var(--ac);outline-offset:2px}
-.bar{position:fixed;left:0;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--line);padding:12px 24px;display:flex;justify-content:flex-end;align-items:center;gap:14px;transform:translateY(110%);transition:.2s}
-.bar.show{transform:none}.toast{color:var(--ac)}.toast.bad{color:var(--bad)}
 @media(max-width:720px){.layout{grid-template-columns:1fr}nav{flex-direction:row;overflow-x:auto;position:static}nav button{white-space:nowrap}.row{flex-wrap:wrap}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}.cord{height:clamp(10px,calc(50vh - 300px),300px)}.login .in{opacity:1!important;transform:none!important}.bgweb path{stroke-dashoffset:0}}
 .login{min-height:100vh;display:grid;place-items:center;padding:24px;text-align:center;position:relative;overflow:hidden;color:#ececf4;background:radial-gradient(120% 80% at 50% 0%,#1d1d3a 0%,#0b0b16 62%)}
@@ -461,7 +570,7 @@ header{background:#121215cc;backdrop-filter:blur(8px);position:sticky;top:0;z-in
 .pri{box-shadow:0 6px 22px #e0222d44;transition:transform .15s,box-shadow .15s}.pri:hover{transform:translateY(-2px);box-shadow:0 10px 28px #e0222d77}
 .btn.ghost:hover{border-color:var(--ac)}
 .srv{transition:transform .2s,border-color .2s,box-shadow .2s}.srv:hover{transform:translateY(-4px);border-color:var(--ac);box-shadow:0 12px 32px #e0222d26}
-nav button{transition:background .15s,color .15s,padding .15s}nav button:hover{color:var(--tx);padding-left:16px}nav button.on{box-shadow:inset 3px 0 0 var(--ac)}
+nav button{transition:background .15s,color .15s,padding .15s}nav>button:hover{color:var(--tx);padding-left:16px}nav button.on{box-shadow:inset 3px 0 0 var(--ac)}
 #fields>*{animation:pop .4s both}#fields>:nth-child(2){animation-delay:.05s}#fields>:nth-child(3){animation-delay:.1s}#fields>:nth-child(4){animation-delay:.15s}
 .sec,.stat,.bcard,.pcard{transition:border-color .2s}.sec:hover,.stat:hover,.pcard:hover{border-color:#e0222d66}
 .dot.on{animation:pulse 2s infinite}
@@ -473,7 +582,62 @@ nav button{transition:background .15s,color .15s,padding .15s}nav button:hover{c
 .qcard{border:1px dashed var(--line);border-radius:12px;padding:12px;margin-top:12px;display:grid;gap:8px}.qcard input,.qcard select{max-width:none}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:8px}.qrow{display:flex;justify-content:space-between;align-items:center}.qrow label{display:flex;align-items:center;gap:10px;font-weight:400}
 .row.st .btn{flex:none}
+.toast{color:var(--ac)}.toast.bad{color:var(--bad)}
+.wrap{max-width:1180px}.layout{grid-template-columns:240px 1fr}
+.hero{margin-bottom:24px}.hero h2{font-size:clamp(1.9rem,5vw,2.8rem);letter-spacing:-.035em;margin:0 0 6px}.hero p{color:var(--mu);margin:0 0 18px}
+#q{max-width:380px;padding:12px 18px;border-radius:99px}
+.servers{grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:16px}
+.srv{position:relative;overflow:hidden;flex-direction:column;align-items:flex-start;gap:14px;padding:20px;min-height:158px;animation:pop .45s both}
+.srv::before{content:"";position:absolute;inset:-24px;background:var(--ic,none) center/cover;opacity:.2;filter:blur(24px);z-index:0}
+.srv>*{position:relative;z-index:1}.srv img,.srv i{width:62px;height:62px;border-radius:18px;font-size:1.6rem}
+.srv b{font-size:1.05rem;display:block}.srv .go{margin-top:auto;font-size:.85rem;font-weight:600;color:var(--ac)}
+.srv.off{border-style:dashed}.srv.off .go{color:var(--mu)}
+nav>button{display:flex;align-items:center;gap:10px}.ico{width:22px;text-align:center}
+.ng{margin:18px 0 4px 12px;font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--mu)}
+.nsrv{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:10px;margin-bottom:6px}
+.nsrv img,.nsrv i{width:38px;height:38px;border-radius:11px;background:var(--line);display:grid;place-items:center;font-style:normal;font-weight:700;flex:none}
+.nsrv div{flex:1;min-width:0}.nsrv b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.nsrv small{color:var(--mu)}
+#secDesc{margin:-8px 0 18px}
+.qa{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:12px}
+.qa button{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px;text-align:left;cursor:pointer;font-weight:600;transition:transform .2s,border-color .2s}
+.qa button:hover{transform:translateY(-3px);border-color:var(--ac)}.qa small{display:block;color:var(--mu);font-weight:400}
+.pop{position:fixed;left:50%;bottom:24px;z-index:20;display:flex;align-items:center;gap:12px;padding:9px 9px 9px 22px;background:#1d1d23f2;backdrop-filter:blur(12px);border:1px solid #e0222d77;border-radius:99px;box-shadow:0 16px 50px #000a,0 0 30px #e0222d33;transform:translate(-50%,180%);opacity:0;transition:transform .45s cubic-bezier(.2,1.3,.4,1),opacity .25s,border-color .2s;max-width:calc(100vw - 20px);white-space:nowrap}
+.pop.show{transform:translate(-50%,0);opacity:1}.pop .btn{padding:9px 22px;border-radius:99px;min-width:84px;text-align:center}
+#popmsg{font-weight:600;font-size:.9rem}.pop.ok{border-color:#3ddc84aa}.pop.ok #popmsg{color:#3ddc84}.pop.bad #popmsg{color:var(--bad)}
+.dots{display:none;gap:5px;align-items:center;justify-content:center;height:20px}.dots i{width:7px;height:7px;border-radius:50%;background:#fff;animation:bounce 1s infinite}
+.dots i:nth-child(2){animation-delay:.15s}.dots i:nth-child(3){animation-delay:.3s}
+@keyframes bounce{0%,60%,100%{transform:translateY(0);opacity:.45}30%{transform:translateY(-6px);opacity:1}}
+.pop.saving .dots{display:flex}.pop.saving #savetxt{display:none}.pop.saving .btn{pointer-events:none}.pop.saving #reset{opacity:.4}
+@media(max-width:720px){.ng,.nsrv{display:none}.pop{gap:8px;padding-left:16px;bottom:14px}#popmsg{font-size:.8rem}.pop .btn{padding:8px 14px;min-width:0}}
+.prog{position:fixed;top:0;left:0;height:3px;width:0;opacity:0;background:linear-gradient(90deg,#e0222d,#ff8a8a);box-shadow:0 0 12px #e0222d;z-index:60;transition:width .5s ease,opacity .3s}
+.btn{position:relative;overflow:hidden}.btn:active{transform:scale(.97)}
+.ripple{position:absolute;border-radius:50%;background:#ffffff55;transform:scale(0);animation:rip .6s ease-out forwards;pointer-events:none}
+@keyframes rip{to{transform:scale(4);opacity:0}}
+.srv,.stat,.pcard,.qa button,.sec,.bcard{position:relative;background-image:radial-gradient(260px circle at var(--mx,-999px) var(--my,-999px),#e0222d24,transparent 62%)}
+.glide{position:absolute;left:0;top:0;width:100%;height:0;border-radius:9px;background:var(--acx);box-shadow:inset 3px 0 0 var(--ac);transition:transform .38s cubic-bezier(.3,1.25,.4,1),height .3s,opacity .2s;pointer-events:none;animation:none!important}
+nav>button{position:relative;z-index:1}nav button.on{background:none;box-shadow:none;color:var(--ac);font-weight:600}nav>*{animation:pop .4s both}
+.sec>.row{animation:pop .35s both}.sec>.row:nth-child(1){animation-delay:0.03s}.sec>.row:nth-child(2){animation-delay:0.06s}.sec>.row:nth-child(3){animation-delay:0.09s}.sec>.row:nth-child(4){animation-delay:0.12s}.sec>.row:nth-child(5){animation-delay:0.15s}.sec>.row:nth-child(6){animation-delay:0.18s}.sec>.row:nth-child(7){animation-delay:0.21s}.sec>.row:nth-child(8){animation-delay:0.24s}.sec>.row:nth-child(9){animation-delay:0.27s}.sec>.row:nth-child(10){animation-delay:0.30s}.sec>.row:nth-child(11){animation-delay:0.33s}.sec>.row:nth-child(12){animation-delay:0.36s}
+.skel{height:78px;border-radius:14px;margin-top:12px;background:linear-gradient(90deg,var(--panel) 25%,#2a2a32 50%,var(--panel) 75%);background-size:200% 100%;animation:shim 1.2s linear infinite}
+@keyframes shim{to{background-position:-200% 0}}
+.sw span:after{transition:transform .35s cubic-bezier(.3,1.6,.5,1)}
+.pop.ok #popmsg::before{content:"\2713  ";display:inline-block;animation:tick .45s cubic-bezier(.3,1.8,.5,1)}@keyframes tick{from{transform:scale(0) rotate(-45deg)}}
+.fs{position:relative;width:min(300px,36vw);display:none}.fs.on{display:block}.fs input{width:100%;max-width:none;padding:8px 16px;border-radius:99px}
+.fsres{position:absolute;top:calc(100% + 8px);left:0;right:0;background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;display:none;z-index:30;box-shadow:0 16px 44px #000b}
+.fsres.open{display:block;animation:pop .2s both}.fsres button{display:flex;gap:10px;width:100%;padding:11px 14px;background:none;border:0;text-align:left;cursor:pointer}.fsres button:hover{background:var(--acx)}
+.row.case{cursor:pointer;transition:background .15s}.row.case:hover{background:#ffffff08}.row.case>div{flex:1}.row.case .go{color:var(--mu);font-size:.85rem;transition:transform .2s,color .2s}.row.case:hover .go{transform:translateX(4px);color:var(--ac)}
+.fl{margin:14px 0 8px}
+.tgrid{display:grid;grid-template-columns:minmax(0,1fr) 380px;gap:22px;align-items:start}.prev{position:sticky;top:76px}
+.dmsg{background:#313338;border-radius:12px;padding:16px;color:#dbdee1;font-family:system-ui,sans-serif;font-size:.92rem}
+.dhead{display:flex;align-items:center;gap:8px;margin-bottom:6px}.dhead img{width:34px;height:34px;border-radius:50%}.dhead b{color:#fff}.tag{background:#5865f2;color:#fff;font-size:.65rem;padding:1px 5px;border-radius:4px}
+.dtext{white-space:pre-wrap;margin:4px 0 8px;overflow-wrap:anywhere}
+.emb{display:flex;gap:12px;background:#2b2d31;border-left:4px solid #e0222d;border-radius:4px;padding:10px 12px;margin-top:8px}
+.embody{flex:1;min-width:0}.eau{font-size:.8rem;font-weight:600;margin-bottom:4px}.eti{font-weight:700;color:#fff;margin-bottom:4px;overflow-wrap:anywhere}.ede{white-space:pre-wrap;font-size:.88rem;overflow-wrap:anywhere}
+.efs{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}.ef{grid-column:1/-1;font-size:.85rem}.ef.in{grid-column:auto}.ef b{display:block;color:#fff;font-size:.82rem}
+.eim{max-width:100%;border-radius:6px;margin-top:10px}.eth{width:64px;height:64px;object-fit:cover;border-radius:6px}.eft{font-size:.72rem;color:#b5bac1;margin-top:8px}.dbtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+@media(max-width:1000px){.tgrid{grid-template-columns:1fr}.prev{position:static}}
+@media(max-width:720px){.glide{display:none}nav button.on{background:var(--acx)}.fs{width:40vw}}
 </style></head><body>
+<div class="prog" id="prog"></div>
 <section id="login" class="login hide"><div class="hang"><i class="cord"></i><img class="medal" src="/logo.jpg" alt="Spidey"></div><div class="in">
   <h1>Spidey</h1>
   <p>Your server's control room. Tune AutoMod, welcomes, levels and tickets here instead of typing commands.</p>
@@ -481,51 +645,64 @@ nav button{transition:background .15s,color .15s,padding .15s}nav button:hover{c
   <small>We only read your name and the list of servers you manage.</small><div id="loginErr" class="err"></div>
 </div></section>
 <section id="app" class="hide">
-  <header><img class="logo" src="/logo.jpg" alt=""><b id="title">Spidey Dashboard</b><span id="uname"></span><img class="av" id="uav" alt=""><a class="btn ghost" href="/auth/logout">Log out</a></header>
+  <header><img class="logo" src="/logo.jpg" alt=""><b id="title">Spidey Dashboard</b><div class="fs" id="fs"><input id="fsearch" type="search" placeholder="Search features (press /)" autocomplete="off"><div class="fsres" id="fsres"></div></div><span id="uname"></span><img class="av" id="uav" alt=""><a class="btn ghost" href="/auth/logout">Log out</a></header>
   <div class="wrap">
-    <div id="picker"><h2>Choose a server</h2><div class="servers" id="servers"></div></div>
-    <div id="panel" class="hide"><button class="btn ghost" id="back" style="margin-bottom:20px">Change server</button>
-      <div class="layout"><nav id="nav"></nav><div><h2 id="secTitle"></h2><div id="fields"></div></div></div></div>
+    <div id="picker"><div class="hero"><h2 id="hello">Hey</h2><p>Pick a server to manage. Servers with Spidey come first.</p><input id="q" type="search" placeholder="Search your servers"></div><div class="servers" id="servers"></div></div>
+    <div id="panel" class="hide"><div class="layout"><nav id="nav"></nav><div><h2 id="secTitle"></h2><p class="hint" id="secDesc"></p><div id="fields"></div></div></div></div>
   </div>
-  <div class="bar" id="bar"><span class="toast" id="toast"></span><button class="btn ghost" id="reset">Discard</button><button class="btn pri" id="save">Save changes</button></div>
+  <div class="pop" id="bar" role="status"><span id="popmsg">You have unsaved changes</span><button class="btn ghost" id="reset">Reset</button><button class="btn pri" id="save"><span id="savetxt">Save</span><span class="dots"><i></i><i></i><i></i></span></button></div>
 </section>
 <script>
 const $=id=>document.getElementById(id);
-const api=async(u,o)=>{const r=await fetch(u,o);const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Request failed');return j};
+let _p=0;const prog=d=>{_p+=d;const b=$('prog');if(!b)return;if(_p>0){b.style.opacity=1;b.style.width='72%'}else{_p=0;b.style.width='100%';setTimeout(()=>{b.style.opacity=0;setTimeout(()=>{b.style.width='0'},300)},250)}};
+const api=async(u,o)=>{prog(1);try{const r=await fetch(u,o);const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.error||'Request failed');return j}finally{prog(-1)}};
 let SCHEMA=[],CID='',G=null,META=null,VAL={},ORIG={},TAB='',ready=false;
 const clone=o=>JSON.parse(JSON.stringify(o));
 const isDirty=()=>!!ORIG[TAB]&&JSON.stringify(VAL[TAB])!==JSON.stringify(ORIG[TAB]);
-const touch=()=>{$('bar').classList.toggle('show',isDirty());$('toast').textContent='';$('toast').className='toast'};
-const say=(t,bad)=>{$('toast').textContent=t;$('toast').className='toast'+(bad?' bad':'')};
+let CTL=null,busy=false,PREV=null;
 async function init(){
   const q=new URLSearchParams(location.search).get('error');
   const {user}=await api('/api/me');
   if(!user){$('login').classList.remove('hide');if(q)$('loginErr').textContent=q==='state'?'Login expired. Try again.':'Discord login failed. Try again.';return}
   [SCHEMA,{clientId:CID}]=await Promise.all([api('/api/schema'),api('/api/config')]);
-  $('app').classList.remove('hide');$('uname').textContent=user.global_name||user.username;
+  $('app').classList.remove('hide');$('uname').textContent=user.global_name||user.username;$('hello').textContent='Hey, '+(user.global_name||user.username);
   if(user.avatar)$('uav').src=`https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=64`;
   loadServers();
 }
 async function loadServers(){
-  $('servers').textContent='Loading servers…';
-  try{const gs=await api('/api/guilds');$('servers').innerHTML='';
-    if(!gs.length)$('servers').textContent='You do not manage any servers yet.';
-    gs.forEach(g=>{const b=document.createElement('button');b.className='srv';
-      const ic=g.icon?`<img src="https://cdn.discordapp.com/icons/${g.id}/${g.icon}.png?size=64" alt="">`:`<i>${g.name[0]}</i>`;
-      b.innerHTML=`${ic}<span><b></b><small>${g.botIn?'Open settings':'Add Spidey first'}</small></span>`;b.querySelector('b').textContent=g.name;
-      b.onclick=()=>g.botIn?openGuild(g):window.open(`https://discord.com/oauth2/authorize?client_id=${CID}&scope=bot%20applications.commands&permissions=8&guild_id=${g.id}`,'_blank');
-      $('servers').append(b)})}catch(e){$('servers').textContent=e.message}
+  const box=$('servers');box.textContent='Loading servers...';let gs;
+  try{gs=await api('/api/guilds')}catch(e){box.textContent=e.message;return}
+  const draw=()=>{const q=$('q').value.trim().toLowerCase();box.innerHTML='';
+    const list=gs.filter(g=>g.name.toLowerCase().includes(q)).sort((a,b)=>b.botIn-a.botIn);
+    if(!list.length){box.append(el('div','empty',gs.length?'No server matches your search.':'You do not manage any servers yet.'));return}
+    list.forEach((g,i)=>{const c=el('button','srv'+(g.botIn?'':' off')),url=g.icon?`https://cdn.discordapp.com/icons/${g.id}/${g.icon}.png?size=128`:'';
+      c.style.animationDelay=(i*45)+'ms';if(url)c.style.setProperty('--ic',`url(${url})`);
+      const ic=url?el('img'):el('i','',g.name[0]);if(url){ic.src=url;ic.alt=''}
+      const t=el('div');t.append(el('b','',g.name),el('small','',g.botIn?`${g.members.toLocaleString()} members`:'Spidey is not here yet'));
+      c.append(ic,t,el('span','go',g.botIn?'Manage server \u2192':'Add Spidey \u2192'));
+      c.onclick=()=>g.botIn?openGuild(g):window.open(`https://discord.com/oauth2/authorize?client_id=${CID}&scope=bot%20applications.commands&permissions=8&guild_id=${g.id}`,'_blank');
+      box.append(c)})};
+  $('q').oninput=draw;draw();
 }
 const SPECIAL=[['overview','Overview'],['board','Leaderboard'],['cases','Mod cases'],['panels','Ticket panels'],['otickets','Open tickets'],['announce','Announce']];
 let TABS=[],OV=null;
+const TITLES={messages:'Messages',overview:'Overview',automod:'AutoMod',welcome:'Welcome',leveling:'Leveling',moderation:'Moderation',utility:'Suggestions',tickets:'Ticket settings',panels:'Ticket panels',otickets:'Open tickets',board:'Leaderboard',cases:'Mod cases',announce:'Announce'};
+const ICON={messages:'\ud83d\udcac',overview:'\ud83c\udfe0',automod:'\ud83d\udee1\ufe0f',welcome:'\ud83d\udc4b',leveling:'\u2b50',moderation:'\ud83d\udd28',utility:'\ud83d\udca1',tickets:'\u2699\ufe0f',panels:'\ud83c\udfab',otickets:'\ud83d\udceb',board:'\ud83c\udfc6',cases:'\ud83d\udccb',announce:'\ud83d\udce3'};
+const DESC={messages:'Build reusable messages with embeds and buttons, then send them anywhere.',overview:'A quick look at your server and what Spidey is doing in it.',automod:'Rules that keep your chat clean.',welcome:'Greet new members and say goodbye.',leveling:'XP, levels and role rewards.',moderation:'Where moderation actions are logged.',utility:'Where /suggest posts end up.',tickets:'Default settings for the ticket system.',panels:'Build ticket panels with buttons and forms.',otickets:'Tickets that are open right now.',board:'Your most active members.',cases:'The latest moderation actions.',announce:'Post a message as Spidey.'};
+const GROUPS=[['',['overview']],['Modules',['automod','welcome','leveling','moderation','utility']],['Tickets',['tickets','panels','otickets']],['Insights',['board','cases']],['Tools',['messages','announce']]];
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!==undefined)e.textContent=x;return e};
 const when=t=>new Date(t*1000).toLocaleString([], {dateStyle:'medium',timeStyle:'short'});
 async function openGuild(g){
   try{[META,OV]=await Promise.all([api('/api/guilds/'+g.id),api(`/api/guilds/${g.id}/overview`)])}catch(e){return alert(e.message)}
   G=g;VAL=clone(META.values);ORIG=clone(META.values);
-  TABS=[SPECIAL[0],...SCHEMA.filter(s=>VAL[s.id]).map(s=>[s.id,s.title]),...SPECIAL.slice(1)];TAB='overview';
-  $('picker').classList.add('hide');$('panel').classList.remove('hide');$('title').textContent=g.name;
-  $('nav').innerHTML='';TABS.forEach(([k,t])=>{const b=el('button','',t);b.dataset.k=k;b.onclick=()=>switchTab(k);$('nav').append(b)});
+  const have=new Set(['overview','messages','panels','otickets','board','cases','announce',...SCHEMA.filter(s=>VAL[s.id]).map(s=>s.id)]);
+  TABS=GROUPS.flatMap(([,ids])=>ids.filter(i=>have.has(i)).map(i=>[i,TITLES[i]]));TAB='overview';CTL=null;
+  $('picker').classList.add('hide');$('panel').classList.remove('hide');$('title').textContent=g.name;$('fs').classList.add('on');
+  const nv=$('nav');nv.innerHTML='';
+  const nh=el('div','nsrv'),ni=g.icon?el('img'):el('i','',g.name[0]);if(g.icon){ni.src=`https://cdn.discordapp.com/icons/${g.id}/${g.icon}.png?size=64`;ni.alt=''}
+  const nt=el('div'),bk=el('button','btn ghost sm','Switch');nt.append(el('b','',g.name),el('small','',`${OV.stats.members} members`));bk.onclick=goBack;nh.append(ni,nt,bk);nv.append(nh);
+  GROUPS.forEach(([gn,ids])=>{const vis=ids.filter(i=>have.has(i));if(!vis.length)return;if(gn)nv.append(el('div','ng',gn));
+    vis.forEach(i=>{const b=el('button');b.dataset.k=i;b.append(el('span','ico',ICON[i]),TITLES[i]);b.onclick=()=>switchTab(i);nv.append(b)})});
   render();
 }
 function renderSpecial(k){
@@ -533,16 +710,15 @@ function renderSpecial(k){
   const list=(rows,empty)=>{if(!rows.length){f.append(el('div','empty',empty));return}const box=el('div','sec');rows.forEach(r=>box.append(r));f.append(box)};
   if(k==='overview'){
     const st=el('div','stats');[['Members',OV.stats.members],['Channels',OV.stats.channels],['Roles',OV.stats.roles],['Bot ping',OV.stats.latency+' ms']].forEach(([a,b])=>{const c=el('div','stat');const bb=el('b','',b);countUp(bb,b);c.append(bb,el('small','',a));st.append(c)});f.append(st);
+    f.append(el('h3','','Quick actions'));const qa=el('div','qa');[['panels','Build a ticket panel','Buttons, forms, categories'],['automod','Tune AutoMod','Spam, links, bad words'],['welcome','Set up welcomes','Messages and auto-roles'],['messages','Create a custom message','Embeds and link buttons'],['announce','Send an announcement','Post as Spidey']].filter(([k])=>TABS.some(t=>t[0]===k)).forEach(([k,t,d])=>{const b=el('button');b.append(el('span','',(ICON[k]||'')+' '+t),el('small','',d));b.onclick=()=>switchTab(k);qa.append(b)});f.append(qa);
     f.append(el('h3','','What is switched on'));
     list(OV.status.map(([n,txt,on,tab])=>{const r=el('div','row st'),d=el('div'),b=el('button','btn ghost','Configure');d.append(el('label','',n),el('small','',txt));b.onclick=()=>switchTab(tab);r.append(el('span','dot'+(on?' on':'')),d,b);return r}),'');
   }else if(k==='board'){
     const L=OV.leaderboard||[],top=(L[0]&&L[0].xp)||1;
     list(L.map((u,i)=>{const r=el('div','row'),d=el('div'),m=el('div','meter');d.append(el('label','',`${i+1}. ${u.name}`),el('small','',`Level ${u.level}, ${u.xp} XP, ${u.messages} messages`));m.append(el('i'));m.firstChild.style.setProperty('--w',(u.xp/top*100)+'%');m.style.setProperty('--w','0');r.append(d,m);return r}),'Nobody has earned XP yet. Turn on Leveling and start chatting.');
-  }else if(k==='cases'){
-    list((OV.cases||[]).map(c=>{const r=el('div','row'),d=el('div');d.append(el('label','',`Case #${c.id}: ${c.type} ${c.user}`),el('small','',`By ${c.mod} on ${when(c.time)}. ${c.reason}`));r.append(d);return r}),'No moderation cases yet.');
-  }else if(k==='otickets'){
+  }else if(k==='cases'){renderCases();}else if(k==='otickets'){
     list((OV.tickets||[]).map(t=>{const r=el('div','row'),d=el('div');d.append(el('label','',`#${t.number} ${t.subject}`),el('small','',`Opened by ${t.opener} on ${when(t.created)}. ${t.claimed?'Claimed by '+t.claimed:'Not claimed yet'}`));r.append(d);return r}),'No open tickets.');
-  }else if(k==='panels'){renderPanels();}else if(k==='announce'){
+  }else if(k==='panels'){renderPanels();}else if(k==='messages'){renderMessages();}else if(k==='announce'){
     const box=el('div','sec'),mk=(l,h,c)=>{const r=el('div','row col'),d=el('div');d.append(el('label','',l),el('small','',h));r.append(d,c);box.append(r);return c};
     const ch=el('select');META.channels.forEach(o=>ch.add(new Option('#'+o.name,o.id)));mk('Channel','Where Spidey posts it',ch);
     const ti=el('input');ti.type='text';ti.maxLength=200;ti.placeholder='Announcement';mk('Title','',ti);
@@ -551,7 +727,7 @@ function renderSpecial(k){
     go.onclick=async()=>{try{await api(`/api/guilds/${G.id}/announce`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel:ch.value,title:ti.value,message:ms.value})});out.className='toast';out.textContent='Sent.';ms.value=''}catch(e){out.className='toast bad';out.textContent=e.message}};
   }
 }
-function switchTab(k){if(isDirty()&&!confirm('Discard unsaved changes in this section?'))return;if(ORIG[TAB])VAL[TAB]=clone(ORIG[TAB]);TAB=k;render();touch();scrollTo(0,0)}
+function switchTab(k){if(cur().dirty()&&!confirm('Discard unsaved changes?'))return;if(ORIG[TAB])VAL[TAB]=clone(ORIG[TAB]);CTL=null;PREV=null;TAB=k;render();touch();scrollTo(0,0)}
 function field(sec,f){
   const row=document.createElement('div');row.className='row'+(f.type==='area'||f.type==='lines'||f.type.startsWith('multi')?' col':'');
   row.innerHTML='<div><label></label><small></small></div>';row.querySelector('label').textContent=f.label;row.querySelector('small').textContent=f.hint||'';
@@ -573,17 +749,25 @@ function field(sec,f){
   if(el)el.id='f_'+f.key;return row;
 }
 function render(){
-  document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.k===TAB));
+  document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.k===TAB));moveGlide();
+  $('secDesc').textContent=DESC[TAB]||'';
   if(!SCHEMA.some(x=>x.id===TAB))return renderSpecial(TAB);
-  const s=SCHEMA.find(x=>x.id===TAB);$('secTitle').textContent=s.title;$('fields').innerHTML='';
+  const s=SCHEMA.find(x=>x.id===TAB);$('secTitle').textContent=TITLES[TAB]||s.title;$('fields').innerHTML='';
   let grp=null,box=null;
   s.fields.forEach(f=>{if(box===null||f.group!==grp){grp=f.group;if(grp){const h=document.createElement('h3');h.textContent=grp;$('fields').append(h)}box=document.createElement('div');box.className='sec';$('fields').append(box)}
     box.append(field(TAB,f))});
 }
-$('save').onclick=async()=>{try{await api(`/api/guilds/${G.id}/${TAB}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(VAL[TAB])});
-  ORIG[TAB]=clone(VAL[TAB]);say('Saved. Spidey is using it now.');api(`/api/guilds/${G.id}/overview`).then(o=>OV=o).catch(()=>{});setTimeout(()=>{if(!isDirty())$('bar').classList.remove('show')},1500)}catch(e){say(e.message,true)}};
-$('reset').onclick=()=>{VAL[TAB]=clone(ORIG[TAB]);render();touch()};
-$('back').onclick=()=>{$('panel').classList.add('hide');$('picker').classList.remove('hide');$('title').textContent='Spidey Dashboard';$('bar').classList.remove('show')};
+const saveTab=async()=>{await api(`/api/guilds/${G.id}/${TAB}`,PJ('PUT',VAL[TAB]));ORIG[TAB]=clone(VAL[TAB]);api(`/api/guilds/${G.id}/overview`).then(o=>OV=o).catch(()=>{})};
+const cur=()=>CTL||{dirty:isDirty,save:saveTab,reset:()=>{if(ORIG[TAB])VAL[TAB]=clone(ORIG[TAB]);render()}};
+function touch(){if(PREV)PREV();if(busy)return;const b=$('bar');b.classList.toggle('show',cur().dirty());b.classList.remove('ok','bad');$('popmsg').textContent='You have unsaved changes'}
+$('save').onclick=async()=>{if(busy)return;busy=true;const b=$('bar');b.classList.add('saving');
+  try{await Promise.all([cur().save(),new Promise(r=>setTimeout(r,800))]);busy=false;b.classList.remove('saving');b.classList.add('ok');$('popmsg').textContent='Saved. Spidey is using it now.';
+    setTimeout(()=>{if(!cur().dirty()){b.classList.remove('show');setTimeout(()=>b.classList.remove('ok'),400)}},1700)}
+  catch(e){busy=false;b.classList.remove('saving');b.classList.add('bad');$('popmsg').textContent=e.message}};
+$('reset').onclick=()=>{if(busy)return;cur().reset();touch()};
+function goBack(){if(cur().dirty()&&!confirm('Discard unsaved changes?'))return;CTL=null;PREV=null;$('fs').classList.remove('on');$('bar').classList.remove('show');$('panel').classList.add('hide');$('picker').classList.remove('hide');$('title').textContent='Spidey Dashboard';loadServers()}
+$('fields').addEventListener('input',touch);$('fields').addEventListener('change',touch);
+addEventListener('beforeunload',e=>{if(cur().dirty()){e.preventDefault();e.returnValue=''}});
 function countUp(n,v){const num=parseFloat(v);if(isNaN(num))return;const suf=String(v).replace(/[\d.]/g,''),t0=performance.now();
   const step=t=>{const p=Math.min(1,(t-t0)/800);n.textContent=Math.round(num*(1-Math.pow(1-p,3)))+suf;if(p<1)requestAnimationFrame(step)};requestAnimationFrame(step)}
 const bindv=(o,k,e,ev,g)=>{e.addEventListener(ev||'input',()=>{o[k]=g?g(e):e.value});return e};
@@ -600,8 +784,8 @@ const newBtn=()=>({label:'Open Ticket',emoji:'\ud83c\udfab',style:'primary',form
 const newPanel=()=>({id:'',name:'Support',embed_title:'Need Help?',embed_description:'Press a button below to open a private ticket with our staff.',embed_color:'#e0222d',category:'',support_roles:[],log_channel:'',max_open:1,ticket_message:'',channel:'',buttons:[newBtn()]});
 const PJ=(m,b)=>({method:m,headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
 async function renderPanels(){
-  const f=$('fields');f.innerHTML='';$('secTitle').textContent='Ticket panels';
-  let P;try{P=await api(`/api/guilds/${G.id}/panels`)}catch(e){f.append(el('div','empty',e.message));return}
+  CTL=null;touch();const f=$('fields');f.innerHTML='';$('secTitle').textContent='Ticket panels';
+  skel(f,3);let P;try{P=await api(`/api/guilds/${G.id}/panels`)}catch(e){f.innerHTML='';f.append(el('div','empty',e.message));return}f.innerHTML='';
   const top=el('div','bar-top'),nb=el('button','btn pri','New panel');nb.onclick=()=>panelEditor(null);
   top.append(el('p','hint','A panel is a message with buttons. Every button can ask its own form, then opens a ticket.'),nb);f.append(top);
   if(!P.length){f.append(el('div','empty','No panels yet. Create your first one.'));return}
@@ -616,7 +800,7 @@ async function renderPanels(){
 function btnCard(D,bt,i,redraw){
   const c=el('div','bcard'),hd=el('div','bhead'),pv=el('span','dbtn');
   const upd=()=>{pv.className='dbtn '+bt.style;pv.textContent=((bt.emoji||'')+' '+(bt.label||'')).trim()};upd();hd.append(pv);
-  if(D.buttons.length>1){const rm=el('button','btn ghost sm','Remove button');rm.onclick=()=>{D.buttons.splice(i,1);redraw()};hd.append(rm)}c.append(hd);
+  if(D.buttons.length>1){const rm=el('button','btn ghost sm','Remove button');rm.onclick=()=>{D.buttons.splice(i,1);redraw();touch()};hd.append(rm)}c.append(hd);
   const b=el('div','sec'),lb=fT(bt,'label',80),em=fT(bt,'emoji',32),st=fS(bt,'style',[['primary','Blue'],['secondary','Grey'],['success','Green'],['danger','Red']]);
   [lb,em].forEach(e=>e.addEventListener('input',upd));st.addEventListener('change',upd);
   fR(b,'Button text','',lb);fR(b,'Emoji','Optional',em);fR(b,'Color','',st);
@@ -626,16 +810,19 @@ function btnCard(D,bt,i,redraw){
       bt.questions.forEach((q,qi)=>{const qc=el('div','qcard'),t2=el('div','two'),t3=el('div','two'),tr=el('div','qrow');
         const ql=fT(q,'label',45),qp=fT(q,'placeholder',100);ql.placeholder='Question';qp.placeholder='Hint text (optional)';t2.append(ql,qp);
         t3.append(fS(q,'style',[['short','Short answer'],['paragraph','Long answer']]),fN(q,'max_length',1,4000));
-        const rq=el('label','','Required');rq.prepend(fW(q,'required'));const rm=el('button','btn ghost sm','Remove');rm.onclick=()=>{bt.questions.splice(qi,1);draw()};
+        const rq=el('label','','Required');rq.prepend(fW(q,'required'));const rm=el('button','btn ghost sm','Remove');rm.onclick=()=>{bt.questions.splice(qi,1);draw();touch()};
         tr.append(rq,rm);qc.append(t2,t3,tr);fm.append(qc)});
-      if(bt.questions.length<5){const ad=el('button','btn ghost sm','Add question');ad.style.margin='14px 0';ad.onclick=()=>{bt.questions.push(newQ());draw()};fm.append(ad)}
+      if(bt.questions.length<5){const ad=el('button','btn ghost sm','Add question');ad.style.margin='14px 0';ad.onclick=()=>{bt.questions.push(newQ());draw();touch()};fm.append(ad)}
     }else fR(fm,'Ticket subject','Used as the subject because no form is shown',fT(bt,'ticket_subject',100));
     fR(fm,'Message inside the ticket','Optional, replaces the panel one for this button',fA(bt,'ticket_message'),1)};
   fR(b,'Ask a form first','Turn off to open the ticket instantly',fW(bt,'form_enabled',draw));b.append(fm);draw();c.append(b);return c;
 }
 function panelEditor(p){
   const D=p?clone(p):newPanel(),f=$('fields');f.innerHTML='';$('secTitle').textContent=p?'Edit panel':'New panel';
-  const back=el('button','btn ghost sm','Back to panels');back.onclick=()=>renderPanels();f.append(back);
+  const back=el('button','btn ghost sm','Back to panels');back.onclick=()=>{if(cur().dirty()&&!confirm('Discard unsaved changes?'))return;renderPanels()};f.append(back);
+  let base=p?clone(p):null,snap=JSON.stringify(D);
+  const saveD=async()=>{const r=await api(`/api/guilds/${G.id}/panels/${D.id||'new'}`,PJ('PUT',D));D.id=r.id;base=clone(D);snap=JSON.stringify(D)};
+  CTL={dirty:()=>JSON.stringify(D)!==snap,save:saveD,reset:()=>panelEditor(base)};touch();
   f.append(el('h3','','Panel message'));let b=el('div','sec');
   fR(b,'Panel name','Only you see this',fT(D,'name',60));fR(b,'Title','',fT(D,'embed_title',200));fR(b,'Description','',fA(D,'embed_description'),1);
   const col=el('input');col.type='color';col.value=D.embed_color;fR(b,'Color','',bindv(D,'embed_color',col));f.append(b);
@@ -646,15 +833,112 @@ function panelEditor(p){
   fR(b,'Max open per member','',fN(D,'max_open',1,10));fR(b,'Message inside new tickets','',fA(D,'ticket_message'),1);f.append(b);
   f.append(el('h3','','Buttons (up to 25)'));const bw=el('div');f.append(bw);
   const draw=()=>{bw.innerHTML='';D.buttons.forEach((bt,i)=>bw.append(btnCard(D,bt,i,draw)));
-    if(D.buttons.length<25){const ad=el('button','btn ghost','Add button');ad.style.marginTop='14px';ad.onclick=()=>{D.buttons.push(newBtn());draw()};bw.append(ad)}};draw();
+    if(D.buttons.length<25){const ad=el('button','btn ghost','Add button');ad.style.marginTop='14px';ad.onclick=()=>{D.buttons.push(newBtn());draw();touch()};bw.append(ad)}};draw();
   f.append(el('h3','','Publish'));b=el('div','sec');const chs=el('select');optsOf(META.channels,'Choose a channel','#').forEach(([a,n])=>chs.add(new Option(n,a)));chs.value=D.channel||'';
   fR(b,'Post in channel','Posting again updates the same message',chs);f.append(b);
-  const out=el('div','toast'),sv=el('button','btn pri','Save panel'),ps=el('button','btn ghost','Save and post');
-  const acts=el('div','acts');acts.style.margin='16px 0';acts.append(sv,ps,out);f.append(acts);
-  const save=async()=>{const r=await api(`/api/guilds/${G.id}/panels/${D.id||'new'}`,PJ('PUT',D));D.id=r.id};
-  const run=async(fn,ok)=>{out.className='toast';out.textContent='Working...';try{await fn();out.textContent=ok}catch(e){out.className='toast bad';out.textContent=e.message}};
-  sv.onclick=()=>run(save,'Saved.');
-  ps.onclick=()=>run(async()=>{if(!chs.value)throw new Error('Choose a channel first');await save();await api(`/api/guilds/${G.id}/panels/${D.id}/post`,PJ('POST',{channel:chs.value}));D.channel=chs.value},'Posted. Members can use the buttons now.');
+  const out=el('div','toast'),ps=el('button','btn pri','Post to channel');
+  const acts=el('div','acts');acts.style.margin='16px 0';acts.append(ps,out);f.append(acts);
+  ps.onclick=async()=>{out.className='toast';out.textContent='Posting...';
+    try{if(!chs.value)throw new Error('Choose a channel first');await saveD();await api(`/api/guilds/${G.id}/panels/${D.id}/post`,PJ('POST',{channel:chs.value}));
+      D.channel=chs.value;base=clone(D);snap=JSON.stringify(D);out.textContent='Posted. Members can use the buttons now.';touch()}
+    catch(e){out.className='toast bad';out.textContent=e.message}};
+}
+const skel=(f,n)=>{for(let i=0;i<n;i++)f.append(el('div','skel'))};
+function moveGlide(){const nv=$('nav');let g=nv.querySelector('.glide');if(!g){g=el('div','glide');nv.prepend(g)}const b=nv.querySelector('button.on');if(!b){g.style.opacity=0;return}g.style.opacity=1;g.style.height=b.offsetHeight+'px';g.style.transform=`translateY(${b.offsetTop}px)`}
+const KW={automod:'spam links invites caps bad words filter punishment',welcome:'greet join leave goodbye autorole embed',leveling:'xp rank level rewards voice',moderation:'log cases ban kick mute',utility:'suggest suggestions',tickets:'ticket category support roles',panels:'ticket panel button form question',otickets:'tickets claimed open',board:'leaderboard top xp',cases:'cases warn ban mute kick history search',announce:'announcement broadcast',messages:'template embed button custom message send'};
+function fsearch(){const q=$('fsearch').value.trim().toLowerCase(),r=$('fsres');r.innerHTML='';if(!q){r.classList.remove('open');return}
+  const hits=TABS.filter(([k,t])=>(t+' '+(KW[k]||'')+' '+(DESC[k]||'')).toLowerCase().includes(q)).slice(0,6);
+  if(!hits.length){const d=el('div','empty','No feature found');d.style.padding='14px';r.append(d)}
+  hits.forEach(([k,t])=>{const b=el('button');b.append(el('span','ico',ICON[k]),el('span','',t));b.onclick=()=>{$('fsearch').value='';r.classList.remove('open');switchTab(k)};r.append(b)});r.classList.add('open')}
+$('fsearch').oninput=fsearch;$('fsearch').onkeydown=e=>{if(e.key==='Enter'){const b=$('fsres').querySelector('button');if(b)b.click()}};
+addEventListener('keydown',e=>{const t=document.activeElement.tagName;if(e.key==='/'&&t!=='INPUT'&&t!=='TEXTAREA'&&t!=='SELECT'&&!$('panel').classList.contains('hide')){e.preventDefault();$('fsearch').focus()}if(e.key==='Escape'){$('fsres').classList.remove('open');$('fsearch').blur()}});
+document.addEventListener('click',e=>{if(!e.target.closest('.fs'))$('fsres').classList.remove('open');const b=e.target.closest('.btn');if(b){const r=b.getBoundingClientRect(),d=Math.max(r.width,r.height),x=el('span','ripple');x.style.cssText=`width:${d}px;height:${d}px;left:${e.clientX-r.left-d/2}px;top:${e.clientY-r.top-d/2}px`;b.append(x);setTimeout(()=>x.remove(),650)}});
+document.addEventListener('pointermove',e=>{const t=e.target.closest&&e.target.closest('.srv,.stat,.pcard,.qa button,.sec,.bcard');if(t){const r=t.getBoundingClientRect();t.style.setProperty('--mx',(e.clientX-r.left)+'px');t.style.setProperty('--my',(e.clientY-r.top)+'px')}});
+async function renderCases(){
+  CTL=null;touch();const f=$('fields');f.innerHTML='';skel(f,4);let C;
+  try{C=await api(`/api/guilds/${G.id}/cases`)}catch(e){f.innerHTML='';f.append(el('div','empty',e.message));return}
+  f.innerHTML='';const q=el('input');q.type='search';q.placeholder='Search by case ID, user or reason';q.style.maxWidth='none';
+  const chips=el('div','chips fl'),cnt=el('p','hint'),holder=el('div');let ft='';
+  const draw=()=>{const s=q.value.trim().toLowerCase();holder.innerHTML='';
+    const L=C.filter(c=>(!ft||c.type===ft)&&(!s||`${c.id} ${c.user} ${c.user_id} ${c.reason} ${c.mod}`.toLowerCase().includes(s)));
+    cnt.textContent=`Found ${L.length} case${L.length===1?'':'s'}.`;
+    if(!L.length){holder.append(el('div','empty','No cases match.'));return}
+    const box=el('div','sec');L.slice(0,100).forEach(c=>{const r=el('div','row case'),d=el('div');
+      d.append(el('label','',`#${c.id}  ${c.type.toUpperCase()}  ${c.user}`),el('small','',`${c.reason||'No reason provided'}, ${when(c.time)}`));
+      r.append(el('span','dot'+(c.active?' on':'')),d,el('span','go','Open \u2192'));r.onclick=()=>caseDetail(c,renderCases);box.append(r)});holder.append(box)};
+  ['All',...new Set(C.map(c=>c.type))].forEach(t=>{const l=el('label'),i=el('input');i.type='radio';i.name='ct';i.checked=t==='All';i.onchange=()=>{ft=t==='All'?'':t;draw()};l.append(i,t);chips.append(l)});
+  q.oninput=draw;f.append(q,chips,cnt,holder);draw();
+}
+function caseDetail(c,back){
+  const f=$('fields');f.innerHTML='';$('secTitle').textContent=`Case #${c.id}`;
+  const bk=el('button','btn ghost sm','Back to cases'),dl=el('button','btn ghost sm','Delete case'),top=el('div','bar-top');
+  bk.onclick=()=>{if(cur().dirty()&&!confirm('Discard unsaved changes?'))return;back()};
+  dl.onclick=async()=>{if(!confirm('Delete this case permanently?'))return;try{await api(`/api/guilds/${G.id}/cases/${c.id}`,{method:'DELETE'});CTL=null;back()}catch(e){alert(e.message)}};
+  top.append(bk,dl);f.append(top);const box=el('div','sec');box.style.marginTop='16px';
+  const kv=(k,v)=>{const r=el('div','row');r.append(el('label','',k),el('span','',v));box.append(r)};
+  kv('Case ID','#'+c.id);kv('Type',c.type.toUpperCase());kv('Status',c.active?'Active':'Closed');kv('User',`${c.user} (${c.user_id})`);kv('Moderator',c.mod);kv('Created',when(c.time));
+  const ta=el('textarea');ta.value=c.reason;ta.maxLength=500;fR(box,'Reason','Edit it, then use the Save popup',ta,1);f.append(box);
+  let saved=c.reason;CTL={dirty:()=>ta.value!==saved,save:async()=>{await api(`/api/guilds/${G.id}/cases/${c.id}`,PJ('PUT',{reason:ta.value}));c.reason=ta.value;saved=ta.value},reset:()=>caseDetail(c,back)};touch();
+}
+const newEmbed=()=>({title:'',description:'',color:'#e0222d',author:'',footer:'',image:'',thumbnail:'',fields:[]});
+const newTpl=()=>({id:'',name:'My message',content:'',embeds:[{...newEmbed(),title:'Hello!',description:'Write your message here.'}],buttons:[],channel:'',message_id:''});
+async function renderMessages(){
+  CTL=null;PREV=null;touch();const f=$('fields');f.innerHTML='';$('secTitle').textContent='Messages';skel(f,3);let P;
+  try{P=await api(`/api/guilds/${G.id}/templates`)}catch(e){f.innerHTML='';f.append(el('div','empty',e.message));return}
+  f.innerHTML='';const top=el('div','bar-top'),nb=el('button','btn pri','Create template');nb.onclick=()=>tplEditor(null);
+  top.append(el('p','hint','Templates are reusable messages with embeds and link buttons. Send them to any channel.'),nb);f.append(top);
+  if(!P.length){f.append(el('div','empty','No templates yet. Create your first one.'));return}
+  const grid=el('div','pgrid');
+  P.forEach(p=>{const c=el('div','pcard'),a=el('div','acts'),ed=el('button','btn ghost sm','Edit'),dl=el('button','btn ghost sm','Delete');
+    c.append(el('b','',p.name),el('small','',`${p.embeds.length} embed${p.embeds.length===1?'':'s'}, ${p.buttons.length} button${p.buttons.length===1?'':'s'}, ${p.message_id?'sent':'not sent yet'}`));
+    ed.onclick=()=>tplEditor(p);dl.onclick=async()=>{if(!confirm('Delete this template? Messages already sent stay in Discord.'))return;try{await api(`/api/guilds/${G.id}/templates/${p.id}`,{method:'DELETE'});renderMessages()}catch(e){alert(e.message)}};
+    a.append(ed,dl);c.append(a);grid.append(c)});f.append(grid);
+}
+function embCard(D,e,i,redraw){
+  const c=el('div','bcard'),hd=el('div','bhead');hd.append(el('b','',`Embed ${i+1}`));
+  if(D.embeds.length>1){const rm=el('button','btn ghost sm','Remove');rm.onclick=()=>{D.embeds.splice(i,1);redraw();touch()};hd.append(rm)}c.append(hd);
+  const b=el('div','sec'),col=el('input');col.type='color';col.value=e.color;
+  fR(b,'Title','',fT(e,'title',256));fR(b,'Description','',fA(e,'description'),1);fR(b,'Color','',bindv(e,'color',col));
+  fR(b,'Author','Small text above the title',fT(e,'author',256));fR(b,'Footer','',fT(e,'footer',2048));
+  fR(b,'Thumbnail link','https:// image, shown top right',fT(e,'thumbnail',500));fR(b,'Big image link','https:// image, shown at the bottom',fT(e,'image',500));
+  const fw=el('div'),drawF=()=>{fw.innerHTML='';
+    e.fields.forEach((x,k)=>{const q=el('div','qcard'),t=el('div','two'),n=fT(x,'name',256),v=fT(x,'value',1024),tr=el('div','qrow'),il=el('label','','Side by side'),rm=el('button','btn ghost sm','Remove');
+      n.placeholder='Field name';v.placeholder='Field value';t.append(n,v);il.prepend(fW(x,'inline'));rm.onclick=()=>{e.fields.splice(k,1);drawF();touch()};tr.append(il,rm);q.append(t,tr);fw.append(q)});
+    if(e.fields.length<10){const ad=el('button','btn ghost sm','Add field');ad.style.margin='12px 0';ad.onclick=()=>{e.fields.push({name:'',value:'',inline:false});drawF();touch()};fw.append(ad)}};
+  drawF();b.append(fw);c.append(b);return c;
+}
+function tplEditor(p){
+  const D=p?clone(p):newTpl(),f=$('fields');f.innerHTML='';$('secTitle').textContent=p?'Edit template':'New template';
+  const back=el('button','btn ghost sm','Back to templates');back.onclick=()=>{if(cur().dirty()&&!confirm('Discard unsaved changes?'))return;renderMessages()};f.append(back);
+  let base=p?clone(p):null,snap=JSON.stringify(D);
+  const saveD=async()=>{const r=await api(`/api/guilds/${G.id}/templates/${D.id||'new'}`,PJ('PUT',D));D.id=r.id;base=clone(D);snap=JSON.stringify(D)};
+  CTL={dirty:()=>JSON.stringify(D)!==snap,save:saveD,reset:()=>tplEditor(base)};
+  const grid=el('div','tgrid'),L=el('div'),R=el('div','prev'),pv=el('div','dmsg');grid.append(L,R);R.append(el('h3','','Preview'),pv);f.append(grid);
+  PREV=()=>{pv.innerHTML='';const hd=el('div','dhead'),im=el('img');im.src='/logo.jpg';im.alt='';hd.append(im,el('b','','Spidey'),el('span','tag','BOT'));pv.append(hd);
+    if(D.content)pv.append(el('div','dtext',D.content));
+    D.embeds.forEach(e=>{const bx=el('div','emb'),bd=el('div','embody');bx.style.borderLeftColor=e.color;
+      if(e.author)bd.append(el('div','eau',e.author));if(e.title)bd.append(el('div','eti',e.title));if(e.description)bd.append(el('div','ede',e.description));
+      if(e.fields.length){const g=el('div','efs');e.fields.forEach(x=>{const c=el('div','ef'+(x.inline?' in':''));c.append(el('b','',x.name||'Name'),el('div','',x.value||'Value'));g.append(c)});bd.append(g)}
+      if((e.image||'').startsWith('https://')){const i=el('img','eim');i.src=e.image;bd.append(i)}
+      if(e.footer)bd.append(el('div','eft',e.footer));bx.append(bd);
+      if((e.thumbnail||'').startsWith('https://')){const t=el('img','eth');t.src=e.thumbnail;bx.append(t)}pv.append(bx)});
+    if(D.buttons.length){const r=el('div','dbtns');D.buttons.forEach(x=>r.append(el('span','dbtn secondary',`${x.emoji||''} ${x.label||'Button'} \u2197`.trim())));pv.append(r)}};
+  let b=el('div','sec');fR(b,'Template name','Only you see this',fT(D,'name',60));fR(b,'Message text','Shown above the embeds',fA(D,'content'),1);L.append(el('h3','','Message'),b);
+  L.append(el('h3','','Embeds (up to 3)'));const ew=el('div');L.append(ew);
+  const drawE=()=>{ew.innerHTML='';D.embeds.forEach((e,i)=>ew.append(embCard(D,e,i,drawE)));
+    if(D.embeds.length<3){const ad=el('button','btn ghost','Add embed');ad.style.marginTop='14px';ad.onclick=()=>{D.embeds.push(newEmbed());drawE();touch()};ew.append(ad)}};drawE();
+  L.append(el('h3','','Link buttons (up to 5)'));const bw=el('div');L.append(bw);
+  const drawB=()=>{bw.innerHTML='';
+    D.buttons.forEach((x,i)=>{const r=el('div','qcard'),t2=el('div','two'),la=fT(x,'label',80),em=fT(x,'emoji',32),ur=fT(x,'url',500),rm=el('button','btn ghost sm','Remove');
+      la.placeholder='Button text';em.placeholder='Emoji (optional)';ur.placeholder='https://...';t2.append(la,em);rm.onclick=()=>{D.buttons.splice(i,1);drawB();touch()};r.append(t2,ur,rm);bw.append(r)});
+    if(D.buttons.length<5){const ad=el('button','btn ghost','Add button');ad.style.marginTop='14px';ad.onclick=()=>{D.buttons.push({label:'',url:'',emoji:''});drawB();touch()};bw.append(ad)}};drawB();
+  L.append(el('h3','','Send'));b=el('div','sec');const chs=el('select');optsOf(META.channels,'Choose a channel','#').forEach(([a,n])=>chs.add(new Option(n,a)));chs.value=D.channel||'';
+  fR(b,'Channel','Sending again to the same channel updates the message',chs);L.append(b);
+  const out=el('div','toast'),ps=el('button','btn pri','Send message'),acts=el('div','acts');acts.style.margin='16px 0';acts.append(ps,out);L.append(acts);
+  ps.onclick=async()=>{out.className='toast';out.textContent='Sending...';
+    try{if(!chs.value)throw new Error('Choose a channel first');await saveD();await api(`/api/guilds/${G.id}/templates/${D.id}/send`,PJ('POST',{channel:chs.value}));
+      D.channel=chs.value;base=clone(D);snap=JSON.stringify(D);out.textContent='Sent!';touch()}catch(e){out.className='toast bad';out.textContent=e.message}};
+  touch();
 }
 function webSvg(c){const n='http://www.w3.org/2000/svg',s=document.createElementNS(n,'svg');s.setAttribute('viewBox','0 0 400 400');if(c)s.setAttribute('class',c);
   const A=[0,18,36,54,72,90].map(a=>a*Math.PI/180);let d='';A.forEach(a=>d+=`M0 0L${400*Math.cos(a)} ${400*Math.sin(a)}`);
