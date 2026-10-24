@@ -22,6 +22,15 @@ from automod import MODULES   # your automod.py
 def F(key, label, type, hint="", path=None, group="", **kw):
     return dict(key=key, label=label, type=type, hint=hint, group=group, path=tuple(path or (key,)), **kw)
 
+def _it(id, name, **kw):
+    return {"id": id, "name": name, "title": "", "author": "", "desc": "", "fields": [], "footer": "", "thumb": False, "color": "#e0222d", **kw}
+INV_TPLS = [
+    _it("classic", "Classic", desc="{user} joined the server\nInvited by {inviter}\nTotal invites: **{invites}**"),
+    _it("card", "Card", author="New member joined", desc="**{user}** was invited by **{inviter}**\nInvite code: `{code}`", footer="Member #{count}", thumb=True),
+    _it("detailed", "Detailed", title="\U0001F4E5 Member joined", fields=[["Member", "{user}"], ["Invited by", "{inviter}"], ["Invites", "{invites}"]], footer="Code {code} | {count} members", thumb=True),
+    _it("minimal", "Minimal", color="#2b2d31", desc="\u2795 {user} joined, invited by {inviter} ({invites} invites)"),
+]
+
 SECTIONS = [
  dict(id="automod", title="AutoMod", cog="AutoMod",
       container=lambda cog, g: cog.cfg(g.id), save=lambda cog, g: cog.save(),
@@ -78,13 +87,9 @@ SECTIONS = [
  dict(id="invites", title="Invite tracker", cog="InviteTracker",
       container=lambda cog, g: cog.cfg(g.id), save=lambda cog, g: cog.save(),
       fields=[
-        F("enabled", "Track invites", "bool", "Needs the Manage Server permission so I can see invite uses", group="Tracking"),
-        F("channel", "Invite log channel", "channel", "Every join is announced here", group="Tracking"),
-        F("embed", "Send as embed", "bool", group="Tracking"),
-        F("message", "Join message", "area", "{user} {inviter} {code} {invites} {count} {server}", max=1500, group="Messages"),
-        F("unknown_message", "When the inviter can't be found", "area", "{user} {count} {server}", max=1500, group="Messages"),
-        F("leave_enabled", "Also announce when someone leaves", "bool", group="Messages"),
-        F("leave_message", "Leave message", "area", "{user} {inviter} {invites} {server}", max=1500, group="Messages")]),
+        F("enabled", "Track invites", "bool", "Needs the Manage Server permission so I can see invite uses"),
+        F("channel", "Invite log channel", "channel", "Every new member is announced here"),
+        F("template", "Message design", "invtpl", "Pick how the message looks", options=INV_TPLS)]),
 
  dict(id="leveling", title="Leveling", cog="Leveling",
       container=lambda cog, g: cog.guild(g.id)["config"], save=lambda cog, g: (_fix_xp(cog, g), cog.save()),
@@ -162,6 +167,9 @@ def from_ui(f, v, g):
     if t == "number":
         n = float(v) if f.get("float") else int(v)
         return max(f["min"], min(f["max"], n))
+    if t == "invtpl":
+        if v not in [o["id"] for o in f["options"]]: raise ValueError("Pick one of the designs")
+        return v
     if t == "select":
         if v not in [o[0] for o in f["options"]]: raise ValueError(f"{f['label']}: invalid choice")
         return v
@@ -809,6 +817,12 @@ header{gap:12px}header #title{min-width:0;overflow:hidden;text-overflow:ellipsis
 .greet p{color:var(--mu);margin:0 0 22px}
 .wave{display:inline-block;transform-origin:70% 75%;animation:wave 2.4s ease-in-out .6s 2}
 @keyframes wave{0%,60%,100%{transform:rotate(0)}10%{transform:rotate(16deg)}20%{transform:rotate(-8deg)}30%{transform:rotate(16deg)}40%{transform:rotate(-4deg)}50%{transform:rotate(10deg)}}
+.tplgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin-top:4px}
+.tplcard{position:relative;display:grid;gap:10px;text-align:left;cursor:pointer;color:var(--tx);background:var(--bg);border:2px solid var(--line);border-radius:16px;padding:14px;transition:transform .2s,border-color .2s,box-shadow .2s}
+.tplcard:hover{transform:translateY(-3px);border-color:#e0222d88}
+.tplcard.sel{border-color:var(--ac);box-shadow:0 0 0 3px #e0222d33,0 12px 30px #e0222d22}
+.tplcard.sel::after{content:"\2713";position:absolute;top:10px;right:12px;width:22px;height:22px;border-radius:50%;background:var(--ac);color:#fff;display:grid;place-items:center;font-size:.8rem;animation:tick .4s cubic-bezier(.3,1.8,.5,1)}
+.dmsg.mini{padding:10px;font-size:.82rem;pointer-events:none}.eth.fake{display:grid;place-items:center;background:#5865f2;color:#fff;font-weight:700;border-radius:50%;width:44px;height:44px;flex:none}
 </style></head><body>
 <div class="prog" id="prog"></div><div class="scrim" id="scrim"></div><div class="boot" id="boot"></div>
 <section id="login" class="login hide"><div class="hang"><i class="cord"></i><img class="medal" src="/logo.jpg" alt="Spidey"></div><div class="in">
@@ -921,6 +935,9 @@ function field(sec,f){
     list.forEach(o=>{const l=document.createElement('label'),c=document.createElement('input');c.type='checkbox';c.checked=v.includes(o.id);
       c.onchange=()=>set(list.filter(x=>[...box.querySelectorAll('input')].some((i,n)=>i.checked&&list[n].id===x.id)).map(x=>x.id));
       l.append(c,(f.type==='multirole'?'':'#')+o.name);box.append(l)});row.append(box)}
+  else if(f.type==='invtpl'){row.classList.add('col');const grid=el('div','tplgrid');
+    f.options.forEach(t=>{const c=el('button','tplcard'+(v===t.id?' sel':''));c.type='button';c.append(el('b','',t.name),tplPrev(t));
+      c.onclick=()=>{set(t.id);grid.querySelectorAll('.tplcard').forEach(x=>x.classList.remove('sel'));c.classList.add('sel')};grid.append(c)});row.append(grid)}
   else if(['channel','role','category','select'].includes(f.type)){el=document.createElement('select');
     const list=f.type==='select'?f.options:[['','None'],...(f.type==='role'?META.roles:f.type==='category'?META.categories:META.channels).map(o=>[o.id,(f.type==='channel'?'#':'')+o.name])];
     list.forEach(([a,b])=>el.add(new Option(b,a)));el.value=v;el.onchange=()=>set(el.value);row.append(el)}
@@ -1168,6 +1185,13 @@ async function renderInviters(){
   L.forEach((u,i)=>{const r=el('div','row'),d=el('div'),m=el('div','meter');d.append(el('label','',`${i+1}. ${u.name}`),el('small','',`${u.invites} invites (${u.total} joined, ${u.left} left)`));
     m.append(el('i'));m.firstChild.style.setProperty('--w',Math.max(4,u.invites/top*100)+'%');r.append(d,m);box.append(r)});f.append(box);
 }
+function tplPrev(t){
+  const S={'{user}':'@Peter','{inviter}':'@Mary','{code}':'x7Kp2','{invites}':'12','{count}':'248','{server}':'Spidey HQ'};
+  const sb=x=>Object.entries(S).reduce((a,[k,v])=>a.split(k).join(v),(x||'').replace(/\*\*/g,'').replace(/`/g,''));
+  const d=el('div','dmsg mini'),bx=el('div','emb'),bd=el('div','embody');bx.style.borderLeftColor=t.color;
+  if(t.author)bd.append(el('div','eau',sb(t.author)));if(t.title)bd.append(el('div','eti',sb(t.title)));if(t.desc)bd.append(el('div','ede',sb(t.desc)));
+  if(t.fields.length){const g=el('div','efs');t.fields.forEach(([n,v])=>{const c=el('div','ef in');c.append(el('b','',sb(n)),el('div','',sb(v)));g.append(c)});bd.append(g)}
+  if(t.footer)bd.append(el('div','eft',sb(t.footer)));bx.append(bd);if(t.thumb)bx.append(el('div','eth fake','P'));d.append(bx);return d}
 function webSvg(c){const n='http://www.w3.org/2000/svg',s=document.createElementNS(n,'svg');s.setAttribute('viewBox','0 0 400 400');if(c)s.setAttribute('class',c);
   const A=[0,18,36,54,72,90].map(a=>a*Math.PI/180);let d='';A.forEach(a=>d+=`M0 0L${400*Math.cos(a)} ${400*Math.sin(a)}`);
   for(let r=60;r<=400;r+=65){d+=`M${r} 0`;A.slice(1).forEach((a,i)=>{const m=(a+A[i])/2,q=r*.9;d+=`Q${q*Math.cos(m)} ${q*Math.sin(m)} ${r*Math.cos(a)} ${r*Math.sin(a)}`})}
@@ -1282,10 +1306,7 @@ class Giveaways(commands.Cog):
 
 # ================= invite tracker (bot side) =================
 class InviteTracker(commands.Cog):
-    DEF = {"enabled": False, "channel": None, "embed": True,
-           "message": "{user} joined using invite `{code}` from {inviter}. {inviter} now has **{invites}** invites.",
-           "unknown_message": "{user} joined the server, but I couldn't tell who invited them.",
-           "leave_enabled": False, "leave_message": "{user} left. They were invited by {inviter}."}
+    DEF = {"enabled": False, "channel": None, "template": "classic"}
     def __init__(self, bot): self.bot, self.data, self.cache = bot, _jl(_IF), {}
     def guild(self, gid):
         g = self.data.setdefault(str(gid), {})
@@ -1315,11 +1336,14 @@ class InviteTracker(commands.Cog):
     def fmt(self, tpl, m, inviter=None, code=None):
         return (tpl.replace("{user}", m.mention).replace("{inviter}", f"<@{inviter}>" if inviter else "Unknown").replace("{code}", code or "unknown")
                    .replace("{invites}", str(self.total(m.guild.id, inviter)) if inviter else "0").replace("{count}", str(m.guild.member_count)).replace("{server}", m.guild.name))
-    async def post(self, ch, as_embed, text):
-        try:
-            if as_embed: await ch.send(embed=discord.Embed(description=text, color=0xE0222D), allowed_mentions=discord.AllowedMentions.none())
-            else: await ch.send(text, allowed_mentions=discord.AllowedMentions.none())
-        except discord.HTTPException: pass
+    def build(self, tid, m, inviter, code):
+        t, f = next((x for x in INV_TPLS if x["id"] == tid), INV_TPLS[0]), (lambda x: self.fmt(x, m, inviter, code))
+        e = discord.Embed(title=f(t["title"]) or None, description=f(t["desc"]) or None, color=int(t["color"].lstrip("#"), 16))
+        if t["author"]: e.set_author(name=f(t["author"]), icon_url=m.display_avatar.url)
+        for n, v in t["fields"]: e.add_field(name=f(n), value=f(v), inline=True)
+        if t["footer"]: e.set_footer(text=f(t["footer"]))
+        if t["thumb"]: e.set_thumbnail(url=m.display_avatar.url)
+        return e
 
     @commands.Cog.listener()
     async def on_member_join(self, m):
@@ -1336,16 +1360,14 @@ class InviteTracker(commands.Cog):
         self.save()
         c = self.cfg(m.guild.id); ch = m.guild.get_channel(int(c["channel"])) if c["channel"] else None
         if c["enabled"] and ch:
-            await self.post(ch, c["embed"], self.fmt(c["message"] if inviter else c["unknown_message"], m, inviter, used.code if used else None))
+            try: await ch.send(embed=self.build(c["template"], m, inviter, used.code if used else None), allowed_mentions=discord.AllowedMentions.none())
+            except discord.HTTPException: pass
     @commands.Cog.listener()
     async def on_member_remove(self, m):
         if m.bot: return
         g = self.guild(m.guild.id); j = g["joins"].pop(str(m.id), None)
         if j and j["inviter"]: g["counts"].setdefault(str(j["inviter"]), {"total": 0, "left": 0})["left"] += 1
         self.save()
-        c = self.cfg(m.guild.id); ch = m.guild.get_channel(int(c["channel"])) if c["channel"] else None
-        if c["enabled"] and c["leave_enabled"] and ch:
-            await self.post(ch, c["embed"], self.fmt(c["leave_message"], m, j["inviter"] if j else None, j["code"] if j else None))
 
     @app_commands.command(name="invites", description="See how many people someone has invited")
     @app_commands.guild_only()
