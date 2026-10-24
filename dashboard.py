@@ -701,6 +701,19 @@ input[type=search]:focus{outline:none;border-color:var(--ac);box-shadow:0 0 0 3p
 input[type=search]::-webkit-search-decoration,input[type=search]::-webkit-search-results-button{display:none}
 input[type=search]::-webkit-search-cancel-button{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;cursor:pointer;background:#3a2a2f url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f2eced' stroke-width='3' stroke-linecap='round'><path d='M6 6l12 12M18 6L6 18'/></svg>") center/10px no-repeat}
 input:-webkit-autofill,textarea:-webkit-autofill{-webkit-box-shadow:0 0 0 100px #0e0e12 inset;-webkit-text-fill-color:var(--tx)}
+header{gap:12px}header #title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.um{position:relative;flex:none}.avb{background:none;border:0;padding:0;cursor:pointer;border-radius:50%;display:block}
+.avb .av{display:block;border:2px solid var(--line);transition:border-color .2s,transform .2s}.avb:hover .av{border-color:var(--ac);transform:scale(1.06)}
+.umenu{position:absolute;right:0;top:calc(100% + 12px);min-width:200px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;display:none;gap:14px;box-shadow:0 16px 44px #000b;z-index:50}
+.umenu.open{display:grid;animation:pop .2s both}.uname{font-weight:600;overflow-wrap:anywhere}.umenu small{color:var(--mu)}
+.ib{display:none;width:38px;height:38px;flex:none;border-radius:50%;border:1px solid var(--line);background:none;cursor:pointer;place-items:center}
+.ib svg{width:18px;height:18px;fill:none;stroke:var(--tx);stroke-width:2.2;stroke-linecap:round}
+@media(max-width:720px){
+  header{padding:10px 14px;gap:10px}header #title{font-size:1rem}
+  header:has(.fs.on) .ib{display:grid}.fs.on{display:none}
+  .fs.on.open{display:block;position:absolute;left:0;right:0;top:100%;width:auto;padding:10px 14px;background:#121215f5;border-bottom:1px solid var(--line);z-index:40;animation:pop .2s both}
+  .fs.open .fsres{left:14px;right:14px;top:calc(100% - 2px)}
+}
 </style></head><body>
 <div class="prog" id="prog"></div><div class="boot" id="boot"></div>
 <section id="login" class="login hide"><div class="hang"><i class="cord"></i><img class="medal" src="/logo.jpg" alt="Spidey"></div><div class="in">
@@ -711,7 +724,12 @@ input:-webkit-autofill,textarea:-webkit-autofill{-webkit-box-shadow:0 0 0 100px 
   <small>We only read your name and the list of servers you manage.</small><div id="loginErr" class="err"></div>
 </div></section>
 <section id="app" class="hide">
-  <header><img class="logo" src="/logo.jpg" alt=""><b id="title">Spidey Dashboard</b><div class="fs" id="fs"><input id="fsearch" type="search" placeholder="Search features (press /)" autocomplete="off"><div class="fsres" id="fsres"></div></div><span id="uname"></span><img class="av" id="uav" alt=""><a class="btn ghost" href="/auth/logout">Log out</a></header>
+  <header><img class="logo" src="/logo.jpg" alt=""><b id="title">Spidey Dashboard</b>
+    <button class="ib" id="fsbtn" aria-label="Search features"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
+    <div class="fs" id="fs"><input id="fsearch" type="search" placeholder="Search features (press /)" autocomplete="off"><div class="fsres" id="fsres"></div></div>
+    <div class="um" id="um"><button class="avb" id="avb" aria-label="Account menu"><img class="av" id="uav" alt=""></button>
+      <div class="umenu" id="umenu"><div><small>Signed in as</small><div class="uname" id="uname"></div></div><a class="btn ghost sm" href="/auth/logout">Log out</a></div></div>
+  </header>
   <div class="wrap">
     <div id="picker"><div class="hero"><h2 id="hello">Hey</h2><p>Pick a server to manage. Servers with Spidey come first.</p><input id="q" type="search" placeholder="Search your servers"></div><div class="servers" id="servers"></div></div>
     <div id="panel" class="hide"><div class="layout"><nav id="nav"></nav><div id="main"><h2 id="secTitle"></h2><p class="hint" id="secDesc"></p><div id="fields"></div></div></div></div>
@@ -732,7 +750,7 @@ async function init0(){
   if(!user){$('login').classList.remove('hide');if(q)$('loginErr').textContent=q==='state'?'Login expired. Try again.':'Discord login failed. Try again.';return}
   [SCHEMA,{clientId:CID}]=await Promise.all([api('/api/schema'),api('/api/config')]);
   $('app').classList.remove('hide');$('uname').textContent=user.global_name||user.username;$('hello').textContent='Hey, '+(user.global_name||user.username);
-  if(user.avatar)$('uav').src=`https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=64`;
+  $('uav').src=user.avatar?`https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=64`:`https://cdn.discordapp.com/embed/avatars/${Number((BigInt(user.id)>>22n)%6n)}.png`;
   loadServers();
 }
 async function loadServers(){
@@ -922,9 +940,9 @@ const KW={leave:'goodbye leave left farewell',joinroles:'auto role join verify a
 function fsearch(){const q=$('fsearch').value.trim().toLowerCase(),r=$('fsres');r.innerHTML='';if(!q){r.classList.remove('open');return}
   const hits=TABS.filter(([k,t])=>(t+' '+(KW[k]||'')+' '+(DESC[k]||'')).toLowerCase().includes(q)).slice(0,6);
   if(!hits.length){const d=el('div','empty','No feature found');d.style.padding='14px';r.append(d)}
-  hits.forEach(([k,t])=>{const b=el('button');b.append(el('span','ico',ICON[k]),el('span','',t));b.onclick=()=>{$('fsearch').value='';r.classList.remove('open');switchTab(k)};r.append(b)});r.classList.add('open')}
+  hits.forEach(([k,t])=>{const b=el('button');b.append(el('span','ico',ICON[k]),el('span','',t));b.onclick=()=>{$('fsearch').value='';r.classList.remove('open');$('fs').classList.remove('open');switchTab(k)};r.append(b)});r.classList.add('open')}
 $('fsearch').oninput=fsearch;$('fsearch').onkeydown=e=>{if(e.key==='Enter'){const b=$('fsres').querySelector('button');if(b)b.click()}};
-addEventListener('keydown',e=>{const t=document.activeElement.tagName;if(e.key==='/'&&t!=='INPUT'&&t!=='TEXTAREA'&&t!=='SELECT'&&!$('panel').classList.contains('hide')){e.preventDefault();$('fsearch').focus()}if(e.key==='Escape'){$('fsres').classList.remove('open');$('fsearch').blur()}});
+addEventListener('keydown',e=>{const t=document.activeElement.tagName;if(e.key==='/'&&t!=='INPUT'&&t!=='TEXTAREA'&&t!=='SELECT'&&!$('panel').classList.contains('hide')){e.preventDefault();$('fsearch').focus()}if(e.key==='Escape'){$('fsres').classList.remove('open');$('fs').classList.remove('open');$('umenu').classList.remove('open');$('fsearch').blur()}});
 document.addEventListener('click',e=>{if(!e.target.closest('.fs'))$('fsres').classList.remove('open');const b=e.target.closest('.btn');if(b){const r=b.getBoundingClientRect(),d=Math.max(r.width,r.height),x=el('span','ripple');x.style.cssText=`width:${d}px;height:${d}px;left:${e.clientX-r.left-d/2}px;top:${e.clientY-r.top-d/2}px`;b.append(x);setTimeout(()=>x.remove(),650)}});
 document.addEventListener('pointermove',e=>{const t=e.target.closest&&e.target.closest('.srv,.stat,.pcard,.qa button,.sec,.bcard');if(t){const r=t.getBoundingClientRect();t.style.setProperty('--mx',(e.clientX-r.left)+'px');t.style.setProperty('--my',(e.clientY-r.top)+'px')}});
 async function renderCases(){
@@ -1018,6 +1036,9 @@ function webSvg(c){const n='http://www.w3.org/2000/svg',s=document.createElement
   for(let r=60;r<=400;r+=65){d+=`M${r} 0`;A.slice(1).forEach((a,i)=>{const m=(a+A[i])/2,q=r*.9;d+=`Q${q*Math.cos(m)} ${q*Math.sin(m)} ${r*Math.cos(a)} ${r*Math.sin(a)}`})}
   const p=document.createElementNS(n,'path');p.setAttribute('d',d);s.append(p);return s}
 $('login').prepend(webSvg(),webSvg('r'));document.body.append(webSvg('bgweb'));
+$('avb').onclick=e=>{e.stopPropagation();$('umenu').classList.toggle('open')};
+$('fsbtn').onclick=e=>{e.stopPropagation();const f=$('fs');f.classList.toggle('open');if(f.classList.contains('open'))setTimeout(()=>$('fsearch').focus(),60)};
+document.addEventListener('click',e=>{if(!e.target.closest('.um'))$('umenu').classList.remove('open');if(!e.target.closest('.fs,#fsbtn'))$('fs').classList.remove('open')});
 const setHH=()=>{const hd=document.querySelector('#app>header');if(hd)document.documentElement.style.setProperty('--hh',hd.offsetHeight+'px')};
 addEventListener('resize',setHH);new ResizeObserver(setHH).observe(document.querySelector('#app>header'));
 showBoot('Waking Spidey up');init0().catch(()=>{}).finally(()=>setTimeout(hideBoot,300));
