@@ -508,7 +508,7 @@ INDEX_HTML = r'''<!doctype html>
 body{margin:0;color:var(--tx);font:15px/1.5 Sora,system-ui,sans-serif;background:var(--bg) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 .08 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>")}
 .bgweb{position:fixed;right:-150px;top:-150px;width:600px;opacity:.16;pointer-events:none;z-index:0;transform:rotate(90deg);animation:breathe 9s ease-in-out infinite}
 .bgweb path{stroke:#e0222d;fill:none;stroke-width:1.2;stroke-dasharray:3000;stroke-dashoffset:3000;animation:draw 4s ease-out forwards}
-#app>*{position:relative;z-index:1}
+#app>.wrap{position:relative;z-index:1}
 button,input,select,textarea{font:inherit;color:inherit}:focus-visible{outline:2px solid var(--ac);outline-offset:2px}
 .hide{display:none!important}
 .btn{border:0;border-radius:10px;padding:11px 18px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-block}
@@ -636,6 +636,10 @@ nav>button{position:relative;z-index:1}nav button.on{background:none;box-shadow:
 .eim{max-width:100%;border-radius:6px;margin-top:10px}.eth{width:64px;height:64px;object-fit:cover;border-radius:6px}.eft{font-size:.72rem;color:#b5bac1;margin-top:8px}.dbtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 @media(max-width:1000px){.tgrid{grid-template-columns:1fr}.prev{position:static}}
 @media(max-width:720px){.glide{display:none}nav button.on{background:var(--acx)}.fs{width:40vw}}
+header{position:sticky;top:0}
+.pop{position:fixed}
+.layout nav{top:calc(var(--hh,64px) + 16px);max-height:calc(100vh - var(--hh,64px) - 32px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;align-self:start}
+@media(max-width:720px){.layout nav{top:var(--hh,64px);max-height:none;overflow-y:visible;overflow-x:auto;z-index:4;background:var(--bg);padding:8px 0;position:sticky}}
 </style></head><body>
 <div class="prog" id="prog"></div>
 <section id="login" class="login hide"><div class="hang"><i class="cord"></i><img class="medal" src="/logo.jpg" alt="Spidey"></div><div class="in">
@@ -945,6 +949,8 @@ function webSvg(c){const n='http://www.w3.org/2000/svg',s=document.createElement
   for(let r=60;r<=400;r+=65){d+=`M${r} 0`;A.slice(1).forEach((a,i)=>{const m=(a+A[i])/2,q=r*.9;d+=`Q${q*Math.cos(m)} ${q*Math.sin(m)} ${r*Math.cos(a)} ${r*Math.sin(a)}`})}
   const p=document.createElementNS(n,'path');p.setAttribute('d',d);s.append(p);return s}
 $('login').prepend(webSvg(),webSvg('r'));document.body.append(webSvg('bgweb'));
+const setHH=()=>{const hd=document.querySelector('#app>header');if(hd)document.documentElement.style.setProperty('--hh',hd.offsetHeight+'px')};
+addEventListener('resize',setHH);new ResizeObserver(setHH).observe(document.querySelector('#app>header'));
 init();
 </script></body></html>
 '''
