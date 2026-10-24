@@ -55,14 +55,22 @@ SECTIONS = [
         F("thumbnail_mode", "Thumbnail", "select", path=("thumbnail_mode",), group="Look",
           options=[["avatar", "Member avatar"], ["server", "Server icon"], ["custom", "Custom URL"], ["none", "None"]]),
         F("thumbnail_url", "Custom thumbnail URL", "text", "https:// link", nullable=True, https=True, group="Look"),
-        F("image_url", "Big image URL", "text", "https:// link", nullable=True, https=True, group="Look"),
-        F("goodbye_enabled", "Send goodbye messages", "bool", group="Leave"),
-        F("goodbye_channel", "Goodbye channel", "channel", group="Leave"),
-        F("goodbye_message", "Goodbye message", "area", "{name} {server} {count}", max=1800, group="Leave"),
-        F("auto_roles_enabled", "Give roles on join", "bool", group="Safety"),
-        F("auto_roles", "Roles given on join", "multirole", group="Safety"),
-        F("verify_role", "Verified role", "role", group="Safety"),
-        F("min_age_days", "Minimum account age (days)", "number", min=0, max=365, group="Safety")]),
+        F("image_url", "Big image URL", "text", "https:// link", nullable=True, https=True, group="Look")]),
+
+ dict(id="leave", title="Leave messages", cog="Welcome",
+      container=lambda cog, g: cog.cfg(g.id), save=lambda cog, g: cog.save(),
+      fields=[
+        F("goodbye_enabled", "Send goodbye messages", "bool"),
+        F("goodbye_channel", "Goodbye channel", "channel", "Where the message is posted when someone leaves"),
+        F("goodbye_message", "Goodbye message", "area", "You can use {name} {server} {count}", max=1800)]),
+
+ dict(id="joinroles", title="Join roles", cog="Welcome",
+      container=lambda cog, g: cog.cfg(g.id), save=lambda cog, g: cog.save(),
+      fields=[
+        F("auto_roles_enabled", "Give roles to new members", "bool", group="Roles"),
+        F("auto_roles", "Roles given on join", "multirole", "Every new member gets these automatically", group="Roles"),
+        F("verify_role", "Verified role", "role", "Given to members who press the verify button", group="Checks"),
+        F("min_age_days", "Minimum account age (days)", "number", "Accounts younger than this are turned away. 0 turns it off", min=0, max=365, group="Checks")]),
 
  dict(id="leveling", title="Leveling", cog="Leveling",
       container=lambda cog, g: cog.guild(g.id)["config"], save=lambda cog, g: (_fix_xp(cog, g), cog.save()),
@@ -638,8 +646,18 @@ nav>button{position:relative;z-index:1}nav button.on{background:none;box-shadow:
 @media(max-width:720px){.glide{display:none}nav button.on{background:var(--acx)}.fs{width:40vw}}
 header{position:sticky;top:0}
 .pop{position:fixed}
-.layout nav{top:calc(var(--hh,64px) + 16px);max-height:calc(100vh - var(--hh,64px) - 32px);overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;align-self:start}
-@media(max-width:720px){.layout nav{top:var(--hh,64px);max-height:none;overflow-y:visible;overflow-x:auto;z-index:4;background:var(--bg);padding:8px 0;position:sticky}}
+html,body{height:100%;overflow:hidden}
+#app{height:100vh;height:100dvh;display:flex;flex-direction:column}
+#app>header{position:relative;flex:none}
+#app>.wrap{flex:1;min-height:0;overflow:hidden;width:100%;padding-bottom:0;display:flex;flex-direction:column}
+#picker{flex:1;min-height:0;overflow-y:auto;padding-bottom:48px;scrollbar-width:thin}
+#panel:not(.hide){flex:1;min-height:0;display:flex;flex-direction:column}
+.layout{flex:1;min-height:0;grid-template-columns:240px minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
+.layout nav{position:relative;top:auto;align-self:stretch;max-height:none;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;padding-bottom:32px}
+#main{min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;padding:0 8px 140px 0}
+.prev{top:12px}
+.login{height:100vh;height:100dvh;overflow-x:hidden;overflow-y:auto}
+@media(max-width:720px){.layout{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}.layout nav{flex-direction:row;overflow-x:auto;overflow-y:hidden;padding:6px 0;align-self:start}#app>.wrap{padding:16px 14px 0}#main{padding-right:0}}
 </style></head><body>
 <div class="prog" id="prog"></div>
 <section id="login" class="login hide"><div class="hang"><i class="cord"></i><img class="medal" src="/logo.jpg" alt="Spidey"></div><div class="in">
@@ -652,7 +670,7 @@ header{position:sticky;top:0}
   <header><img class="logo" src="/logo.jpg" alt=""><b id="title">Spidey Dashboard</b><div class="fs" id="fs"><input id="fsearch" type="search" placeholder="Search features (press /)" autocomplete="off"><div class="fsres" id="fsres"></div></div><span id="uname"></span><img class="av" id="uav" alt=""><a class="btn ghost" href="/auth/logout">Log out</a></header>
   <div class="wrap">
     <div id="picker"><div class="hero"><h2 id="hello">Hey</h2><p>Pick a server to manage. Servers with Spidey come first.</p><input id="q" type="search" placeholder="Search your servers"></div><div class="servers" id="servers"></div></div>
-    <div id="panel" class="hide"><div class="layout"><nav id="nav"></nav><div><h2 id="secTitle"></h2><p class="hint" id="secDesc"></p><div id="fields"></div></div></div></div>
+    <div id="panel" class="hide"><div class="layout"><nav id="nav"></nav><div id="main"><h2 id="secTitle"></h2><p class="hint" id="secDesc"></p><div id="fields"></div></div></div></div>
   </div>
   <div class="pop" id="bar" role="status"><span id="popmsg">You have unsaved changes</span><button class="btn ghost" id="reset">Reset</button><button class="btn pri" id="save"><span id="savetxt">Save</span><span class="dots"><i></i><i></i><i></i></span></button></div>
 </section>
@@ -690,10 +708,10 @@ async function loadServers(){
 }
 const SPECIAL=[['overview','Overview'],['board','Leaderboard'],['cases','Mod cases'],['panels','Ticket panels'],['otickets','Open tickets'],['announce','Announce']];
 let TABS=[],OV=null;
-const TITLES={messages:'Messages',overview:'Overview',automod:'AutoMod',welcome:'Welcome',leveling:'Leveling',moderation:'Moderation',utility:'Suggestions',tickets:'Ticket settings',panels:'Ticket panels',otickets:'Open tickets',board:'Leaderboard',cases:'Mod cases',announce:'Announce'};
-const ICON={messages:'\ud83d\udcac',overview:'\ud83c\udfe0',automod:'\ud83d\udee1\ufe0f',welcome:'\ud83d\udc4b',leveling:'\u2b50',moderation:'\ud83d\udd28',utility:'\ud83d\udca1',tickets:'\u2699\ufe0f',panels:'\ud83c\udfab',otickets:'\ud83d\udceb',board:'\ud83c\udfc6',cases:'\ud83d\udccb',announce:'\ud83d\udce3'};
-const DESC={messages:'Build reusable messages with embeds and buttons, then send them anywhere.',overview:'A quick look at your server and what Spidey is doing in it.',automod:'Rules that keep your chat clean.',welcome:'Greet new members and say goodbye.',leveling:'XP, levels and role rewards.',moderation:'Where moderation actions are logged.',utility:'Where /suggest posts end up.',tickets:'Default settings for the ticket system.',panels:'Build ticket panels with buttons and forms.',otickets:'Tickets that are open right now.',board:'Your most active members.',cases:'The latest moderation actions.',announce:'Post a message as Spidey.'};
-const GROUPS=[['',['overview']],['Modules',['automod','welcome','leveling','moderation','utility']],['Tickets',['tickets','panels','otickets']],['Insights',['board','cases']],['Tools',['messages','announce']]];
+const TITLES={leave:'Leave messages',joinroles:'Join roles',messages:'Messages',overview:'Overview',automod:'AutoMod',welcome:'Welcome',leveling:'Leveling',moderation:'Moderation',utility:'Suggestions',tickets:'Ticket settings',panels:'Ticket panels',otickets:'Open tickets',board:'Leaderboard',cases:'Mod cases',announce:'Announce'};
+const ICON={leave:'\ud83d\udeaa',joinroles:'\ud83c\udfad',messages:'\ud83d\udcac',overview:'\ud83c\udfe0',automod:'\ud83d\udee1\ufe0f',welcome:'\ud83d\udc4b',leveling:'\u2b50',moderation:'\ud83d\udd28',utility:'\ud83d\udca1',tickets:'\u2699\ufe0f',panels:'\ud83c\udfab',otickets:'\ud83d\udceb',board:'\ud83c\udfc6',cases:'\ud83d\udccb',announce:'\ud83d\udce3'};
+const DESC={leave:'Say goodbye when someone leaves the server.',joinroles:'Roles and checks for brand new members.',messages:'Build reusable messages with embeds and buttons, then send them anywhere.',overview:'A quick look at your server and what Spidey is doing in it.',automod:'Rules that keep your chat clean.',welcome:'Greet new members and say goodbye.',leveling:'XP, levels and role rewards.',moderation:'Where moderation actions are logged.',utility:'Where /suggest posts end up.',tickets:'Default settings for the ticket system.',panels:'Build ticket panels with buttons and forms.',otickets:'Tickets that are open right now.',board:'Your most active members.',cases:'The latest moderation actions.',announce:'Post a message as Spidey.'};
+const GROUPS=[['',['overview']],['Modules',['automod','welcome','leave','joinroles','leveling','moderation','utility']],['Tickets',['tickets','panels','otickets']],['Insights',['board','cases']],['Tools',['messages','announce']]];
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!==undefined)e.textContent=x;return e};
 const when=t=>new Date(t*1000).toLocaleString([], {dateStyle:'medium',timeStyle:'short'});
 async function openGuild(g){
@@ -731,7 +749,7 @@ function renderSpecial(k){
     go.onclick=async()=>{try{await api(`/api/guilds/${G.id}/announce`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel:ch.value,title:ti.value,message:ms.value})});out.className='toast';out.textContent='Sent.';ms.value=''}catch(e){out.className='toast bad';out.textContent=e.message}};
   }
 }
-function switchTab(k){if(cur().dirty()&&!confirm('Discard unsaved changes?'))return;if(ORIG[TAB])VAL[TAB]=clone(ORIG[TAB]);CTL=null;PREV=null;TAB=k;render();touch();scrollTo(0,0)}
+function switchTab(k){if(cur().dirty()&&!confirm('Discard unsaved changes?'))return;if(ORIG[TAB])VAL[TAB]=clone(ORIG[TAB]);CTL=null;PREV=null;TAB=k;render();touch();$('main').scrollTo({top:0})}
 function field(sec,f){
   const row=document.createElement('div');row.className='row'+(f.type==='area'||f.type==='lines'||f.type.startsWith('multi')?' col':'');
   row.innerHTML='<div><label></label><small></small></div>';row.querySelector('label').textContent=f.label;row.querySelector('small').textContent=f.hint||'';
@@ -849,7 +867,7 @@ function panelEditor(p){
 }
 const skel=(f,n)=>{for(let i=0;i<n;i++)f.append(el('div','skel'))};
 function moveGlide(){const nv=$('nav');let g=nv.querySelector('.glide');if(!g){g=el('div','glide');nv.prepend(g)}const b=nv.querySelector('button.on');if(!b){g.style.opacity=0;return}g.style.opacity=1;g.style.height=b.offsetHeight+'px';g.style.transform=`translateY(${b.offsetTop}px)`}
-const KW={automod:'spam links invites caps bad words filter punishment',welcome:'greet join leave goodbye autorole embed',leveling:'xp rank level rewards voice',moderation:'log cases ban kick mute',utility:'suggest suggestions',tickets:'ticket category support roles',panels:'ticket panel button form question',otickets:'tickets claimed open',board:'leaderboard top xp',cases:'cases warn ban mute kick history search',announce:'announcement broadcast',messages:'template embed button custom message send'};
+const KW={leave:'goodbye leave left farewell',joinroles:'auto role join verify account age new members',automod:'spam links invites caps bad words filter punishment',welcome:'greet join leave goodbye autorole embed',leveling:'xp rank level rewards voice',moderation:'log cases ban kick mute',utility:'suggest suggestions',tickets:'ticket category support roles',panels:'ticket panel button form question',otickets:'tickets claimed open',board:'leaderboard top xp',cases:'cases warn ban mute kick history search',announce:'announcement broadcast',messages:'template embed button custom message send'};
 function fsearch(){const q=$('fsearch').value.trim().toLowerCase(),r=$('fsres');r.innerHTML='';if(!q){r.classList.remove('open');return}
   const hits=TABS.filter(([k,t])=>(t+' '+(KW[k]||'')+' '+(DESC[k]||'')).toLowerCase().includes(q)).slice(0,6);
   if(!hits.length){const d=el('div','empty','No feature found');d.style.padding='14px';r.append(d)}
