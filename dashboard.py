@@ -588,13 +588,80 @@ def build(bot) -> web.Application:
         rows = sorted(((int(u), c) for u, c in cog.guild(g.id)["counts"].items() if c["total"]), key=lambda r: -(r[1]["total"] - r[1]["left"]))[:10]
         return J([{"name": _name(g, u), "invites": c["total"] - c["left"], "total": c["total"], "left": c["left"]} for u, c in rows])
 
+    def rrc(request):
+        gid = request.match_info["id"]
+        if (e := deny(request, gid)): return e, None, None
+        cog = bot.get_cog("ReactionRoles")
+        return (None, bot.get_guild(int(gid)), cog) if cog else (J({"error": "The reaction roles module is not loaded"}, status=404), None, None)
+
+    def clean_rr(g, d, old, uid):
+        t = lambda v, n: str(v or "").strip()[:n]
+        mode = d.get("mode") if d.get("mode") in ("buttons", "dropdown", "reactions") else "buttons"
+        col, host = t(d.get("color"), 7), g.get_member(uid)
+        strong = host and (g.owner_id == host.id or host.guild_permissions.administrator)
+        out = {"name": t(d.get("name"), 60) or "Roles", "mode": mode, "title": t(d.get("title"), 200) or "Pick your roles", "description": t(d.get("description"), 2000),
+               "color": col if len(col) == 7 and col[0] == "#" else "#e0222d", "unique": bool(d.get("unique")), "items": []}
+        for x in (d.get("items") or [])[:20 if mode == "reactions" else 25]:
+            role = g.get_role(int(x.get("role") or 0))
+            if not role: raise ValueError("Choose a role for every row")
+            if role.managed or role.is_default(): raise ValueError(f"{role.name} can't be given out")
+            if role >= g.me.top_role: raise ValueError(f"I can't give {role.name} because it is above my highest role. Move my role higher first")
+            if host and not strong and not (host.guild_permissions.manage_roles and role < host.top_role): raise ValueError(f"You can't hand out {role.name}. It is above your highest role")
+            emoji, label = t(x.get("emoji"), 64), t(x.get("label"), 80)
+            if mode == "reactions" and not emoji: raise ValueError("Every row needs an emoji in reactions mode")
+            if (mode == "dropdown" or not emoji) and not label: label = role.name[:80]
+            out["items"].append({"emoji": emoji, "label": label, "role": role.id, "description": t(x.get("description"), 100)})
+        if not out["items"]: raise ValueError("Add at least one role")
+        if mode == "reactions" and len({i["emoji"] for i in out["items"]}) < len(out["items"]): raise ValueError("Each role needs a different emoji")
+        for k in ("channel", "message_id"):
+            if old.get(k): out[k] = old[k]
+        return out
+
+    async def rr_list(request):
+        e, g, cog = rrc(request)
+        return e or J([{**v, "id": k, "role_ids": [str(i["role"]) for i in v["items"]], "channel": str(v.get("channel") or ""), "message_id": str(v.get("message_id") or ""),
+                        "items": [{**i, "role": str(i["role"])} for i in v["items"]]} for k, v in cog.g(g.id).items()])
+
+    async def rr_put(request):
+        e, g, cog = rrc(request)
+        if e: return e
+        P, pid = cog.g(g.id), request.match_info["pid"]
+        try: data = clean_rr(g, await request.json(), P.get(pid, {}), int(request["s"]["user"]["id"]))
+        except (ValueError, TypeError, AttributeError) as ex: return J({"error": str(ex) or "Invalid panel"}, status=400)
+        if pid not in P: pid = "r" + secrets.token_hex(3)
+        P[pid] = data; cog.save()
+        if data.get("message_id") and (ch := g.get_channel(int(data["channel"]))):
+            try: await cog.publish(g, pid, data, ch)
+            except Exception: pass
+        return J({"id": pid})
+
+    async def rr_delete(request):
+        e, g, cog = rrc(request)
+        if e: return e
+        p = cog.g(g.id).pop(request.match_info["pid"], None); cog.save()
+        if p and p.get("message_id"):
+            try: await (await g.get_channel(int(p["channel"])).fetch_message(int(p["message_id"]))).delete()
+            except Exception: pass
+        return J({"ok": True})
+
+    async def rr_post(request):
+        e, g, cog = rrc(request)
+        if e: return e
+        pid = request.match_info["pid"]; p = cog.g(g.id).get(pid)
+        try: ch = g.get_channel(int((await request.json()).get("channel") or 0))
+        except (ValueError, TypeError): ch = None
+        if not p or not isinstance(ch, discord.TextChannel): return J({"error": "Save the panel and pick a text channel first"}, status=400)
+        try: await cog.publish(g, pid, p, ch)
+        except discord.HTTPException: return J({"error": "Discord rejected the message. Check the emojis and my permissions in that channel."}, status=400)
+        return J({"ok": True})
+
     async def logo(request): return web.Response(body=base64.b64decode(LOGO_B64), content_type="image/jpeg", headers={"Cache-Control": "public, max-age=86400"})
 
     async def index(request): return web.Response(text=INDEX_HTML, content_type="text/html")
     app = web.Application(middlewares=[session_mw])
     app.add_routes([web.get("/", index), web.get("/auth/login", login), web.get("/auth/callback", callback), web.get("/auth/logout", logout),
         web.get("/api/config", config), web.get("/api/me", me), web.get("/api/schema", schema), web.get("/api/guilds", guilds),
-        web.get("/api/guilds/{id}", guild_get), web.get("/api/guilds/{id}/overview", overview), web.get("/logo.jpg", logo), web.get("/api/guilds/{id}/giveaways", gw_list), web.post("/api/guilds/{id}/giveaways", gw_start), web.post("/api/guilds/{id}/giveaways/{gid}/{act}", gw_act), web.delete("/api/guilds/{id}/giveaways/{gid}", gw_del), web.get("/api/guilds/{id}/inviters", inviters), web.get("/api/guilds/{id}/cases", cases_get), web.put("/api/guilds/{id}/cases/{cid}", case_put), web.delete("/api/guilds/{id}/cases/{cid}", case_delete), web.get("/api/guilds/{id}/templates", tpl_get), web.put("/api/guilds/{id}/templates/{tid}", tpl_put), web.delete("/api/guilds/{id}/templates/{tid}", tpl_delete), web.post("/api/guilds/{id}/templates/{tid}/send", tpl_send), web.get("/api/guilds/{id}/panels", panels_get), web.put("/api/guilds/{id}/panels/{pid}", panel_put), web.delete("/api/guilds/{id}/panels/{pid}", panel_delete), web.post("/api/guilds/{id}/panels/{pid}/post", panel_post), web.post("/api/guilds/{id}/announce", announce), web.put("/api/guilds/{id}/{sec}", section_put)])
+        web.get("/api/guilds/{id}", guild_get), web.get("/api/guilds/{id}/overview", overview), web.get("/logo.jpg", logo), web.get("/api/guilds/{id}/rroles", rr_list), web.put("/api/guilds/{id}/rroles/{pid}", rr_put), web.delete("/api/guilds/{id}/rroles/{pid}", rr_delete), web.post("/api/guilds/{id}/rroles/{pid}/post", rr_post), web.get("/api/guilds/{id}/giveaways", gw_list), web.post("/api/guilds/{id}/giveaways", gw_start), web.post("/api/guilds/{id}/giveaways/{gid}/{act}", gw_act), web.delete("/api/guilds/{id}/giveaways/{gid}", gw_del), web.get("/api/guilds/{id}/inviters", inviters), web.get("/api/guilds/{id}/cases", cases_get), web.put("/api/guilds/{id}/cases/{cid}", case_put), web.delete("/api/guilds/{id}/cases/{cid}", case_delete), web.get("/api/guilds/{id}/templates", tpl_get), web.put("/api/guilds/{id}/templates/{tid}", tpl_put), web.delete("/api/guilds/{id}/templates/{tid}", tpl_delete), web.post("/api/guilds/{id}/templates/{tid}/send", tpl_send), web.get("/api/guilds/{id}/panels", panels_get), web.put("/api/guilds/{id}/panels/{pid}", panel_put), web.delete("/api/guilds/{id}/panels/{pid}", panel_delete), web.post("/api/guilds/{id}/panels/{pid}/post", panel_post), web.post("/api/guilds/{id}/announce", announce), web.put("/api/guilds/{id}/{sec}", section_put)])
     from urllib.parse import urlparse
     path = (urlparse(REDIRECT or "").path or "").rstrip("/")
     if path and path not in ("/auth/callback", "") and not any(getattr(r, "resource", None) and r.resource.canonical == path for r in app.router.routes()):
@@ -823,6 +890,8 @@ header{gap:12px}header #title{min-width:0;overflow:hidden;text-overflow:ellipsis
 .tplcard.sel{border-color:var(--ac);box-shadow:0 0 0 3px #e0222d33,0 12px 30px #e0222d22}
 .tplcard.sel::after{content:"\2713";position:absolute;top:10px;right:12px;width:22px;height:22px;border-radius:50%;background:var(--ac);color:#fff;display:grid;place-items:center;font-size:.8rem;animation:tick .4s cubic-bezier(.3,1.8,.5,1)}
 .dmsg.mini{padding:10px;font-size:.82rem;pointer-events:none}.eth.fake{display:grid;place-items:center;background:#5865f2;color:#fff;font-weight:700;border-radius:50%;width:44px;height:44px;flex:none}
+.selmock{background:#1e1f22;border:1px solid #3f4147;border-radius:6px;padding:10px 12px;margin-top:8px;color:#b5bac1}
+.rx{display:inline-grid;place-items:center;min-width:34px;height:28px;padding:0 8px;border-radius:8px;background:#2b2d31;border:1px solid #3f4147}
 </style></head><body>
 <div class="prog" id="prog"></div><div class="scrim" id="scrim"></div><div class="boot" id="boot"></div>
 <section id="login" class="login hide"><div class="hang"><i class="cord"></i><img class="medal" src="/logo.jpg" alt="Spidey"></div><div class="in">
@@ -879,17 +948,17 @@ async function loadServers(){
 }
 const SPECIAL=[['overview','Overview'],['board','Leaderboard'],['cases','Mod cases'],['panels','Ticket panels'],['otickets','Open tickets'],['announce','Announce']];
 let TABS=[],OV=null;
-const TITLES={giveaways:'Giveaways',invites:'Invite tracker',inviters:'Top inviters',leave:'Leave messages',joinroles:'Join roles',messages:'Messages',overview:'Overview',automod:'AutoMod',welcome:'Welcome',leveling:'Leveling',moderation:'Moderation',utility:'Suggestions',tickets:'Ticket settings',panels:'Ticket panels',otickets:'Open tickets',board:'Leaderboard',cases:'Mod cases',announce:'Announce'};
-const ICON={giveaways:'\ud83c\udf89',invites:'\ud83d\udce8',inviters:'\ud83c\udfc5',leave:'\ud83d\udeaa',joinroles:'\ud83c\udfad',messages:'\ud83d\udcac',overview:'\ud83c\udfe0',automod:'\ud83d\udee1\ufe0f',welcome:'\ud83d\udc4b',leveling:'\u2b50',moderation:'\ud83d\udd28',utility:'\ud83d\udca1',tickets:'\u2699\ufe0f',panels:'\ud83c\udfab',otickets:'\ud83d\udceb',board:'\ud83c\udfc6',cases:'\ud83d\udccb',announce:'\ud83d\udce3'};
-const DESC={giveaways:'Start giveaways and let members enter with one button.',invites:'See who invited each new member and post it to a channel.',inviters:'The members who brought in the most people.',leave:'Say goodbye when someone leaves the server.',joinroles:'Roles and checks for brand new members.',messages:'Build reusable messages with embeds and buttons, then send them anywhere.',overview:'A quick look at your server and what Spidey is doing in it.',automod:'Rules that keep your chat clean.',welcome:'Greet new members and say goodbye.',leveling:'XP, levels and role rewards.',moderation:'Where moderation actions are logged.',utility:'Where /suggest posts end up.',tickets:'Default settings for the ticket system.',panels:'Build ticket panels with buttons and forms.',otickets:'Tickets that are open right now.',board:'Your most active members.',cases:'The latest moderation actions.',announce:'Post a message as Spidey.'};
-const GROUPS=[['',['overview']],['Modules',['automod','welcome','leave','joinroles','invites','leveling','moderation','utility']],['Tickets',['tickets','panels','otickets']],['Insights',['board','inviters','cases']],['Tools',['messages','giveaways','announce']]];
+const TITLES={rroles:'Reaction roles',giveaways:'Giveaways',invites:'Invite tracker',inviters:'Top inviters',leave:'Leave messages',joinroles:'Join roles',messages:'Messages',overview:'Overview',automod:'AutoMod',welcome:'Welcome',leveling:'Leveling',moderation:'Moderation',utility:'Suggestions',tickets:'Ticket settings',panels:'Ticket panels',otickets:'Open tickets',board:'Leaderboard',cases:'Mod cases',announce:'Announce'};
+const ICON={rroles:'\ud83c\udff7\ufe0f',giveaways:'\ud83c\udf89',invites:'\ud83d\udce8',inviters:'\ud83c\udfc5',leave:'\ud83d\udeaa',joinroles:'\ud83c\udfad',messages:'\ud83d\udcac',overview:'\ud83c\udfe0',automod:'\ud83d\udee1\ufe0f',welcome:'\ud83d\udc4b',leveling:'\u2b50',moderation:'\ud83d\udd28',utility:'\ud83d\udca1',tickets:'\u2699\ufe0f',panels:'\ud83c\udfab',otickets:'\ud83d\udceb',board:'\ud83c\udfc6',cases:'\ud83d\udccb',announce:'\ud83d\udce3'};
+const DESC={rroles:'Let members pick their own roles with buttons, a menu or emoji reactions.',giveaways:'Start giveaways and let members enter with one button.',invites:'See who invited each new member and post it to a channel.',inviters:'The members who brought in the most people.',leave:'Say goodbye when someone leaves the server.',joinroles:'Roles and checks for brand new members.',messages:'Build reusable messages with embeds and buttons, then send them anywhere.',overview:'A quick look at your server and what Spidey is doing in it.',automod:'Rules that keep your chat clean.',welcome:'Greet new members and say goodbye.',leveling:'XP, levels and role rewards.',moderation:'Where moderation actions are logged.',utility:'Where /suggest posts end up.',tickets:'Default settings for the ticket system.',panels:'Build ticket panels with buttons and forms.',otickets:'Tickets that are open right now.',board:'Your most active members.',cases:'The latest moderation actions.',announce:'Post a message as Spidey.'};
+const GROUPS=[['',['overview']],['Modules',['automod','welcome','leave','joinroles','rroles','invites','leveling','moderation','utility']],['Tickets',['tickets','panels','otickets']],['Insights',['board','inviters','cases']],['Tools',['messages','giveaways','announce']]];
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!==undefined)e.textContent=x;return e};
 const when=t=>new Date(t*1000).toLocaleString([], {dateStyle:'medium',timeStyle:'short'});
 async function openGuild(g){
   $('servers').innerHTML='';$('servers').append(spl('Opening '+g.name));
   try{[META,OV]=await Promise.all([api('/api/guilds/'+g.id),api(`/api/guilds/${g.id}/overview`)])}catch(e){alert(e.message);loadServers();return}
   G=g;VAL=clone(META.values);ORIG=clone(META.values);
-  const have=new Set(['overview','giveaways','inviters','messages','panels','otickets','board','cases','announce',...SCHEMA.filter(s=>VAL[s.id]).map(s=>s.id)]);
+  const have=new Set(['overview','rroles','giveaways','inviters','messages','panels','otickets','board','cases','announce',...SCHEMA.filter(s=>VAL[s.id]).map(s=>s.id)]);
   TABS=GROUPS.flatMap(([,ids])=>ids.filter(i=>have.has(i)).map(i=>[i,TITLES[i]]));TAB='overview';CTL=null;
   $('picker').classList.add('hide');$('panel').classList.remove('hide');$('title').textContent=g.name;$('fs').classList.add('on');
   const nv=$('nav');nv.innerHTML='';
@@ -912,7 +981,7 @@ function renderSpecial(k){
     list(L.map((u,i)=>{const r=el('div','row'),d=el('div'),m=el('div','meter');d.append(el('label','',`${i+1}. ${u.name}`),el('small','',`Level ${u.level}, ${u.xp} XP, ${u.messages} messages`));m.append(el('i'));m.firstChild.style.setProperty('--w',(u.xp/top*100)+'%');m.style.setProperty('--w','0');r.append(d,m);return r}),'Nobody has earned XP yet. Turn on Leveling and start chatting.');
   }else if(k==='cases'){renderCases();}else if(k==='otickets'){
     list((OV.tickets||[]).map(t=>{const r=el('div','row'),d=el('div');d.append(el('label','',`#${t.number} ${t.subject}`),el('small','',`Opened by ${t.opener} on ${when(t.created)}. ${t.claimed?'Claimed by '+t.claimed:'Not claimed yet'}`));r.append(d);return r}),'No open tickets.');
-  }else if(k==='panels'){renderPanels();}else if(k==='messages'){renderMessages();}else if(k==='giveaways'){renderGiveaways();}else if(k==='inviters'){renderInviters();}else if(k==='announce'){
+  }else if(k==='panels'){renderPanels();}else if(k==='messages'){renderMessages();}else if(k==='giveaways'){renderGiveaways();}else if(k==='rroles'){renderRR();}else if(k==='inviters'){renderInviters();}else if(k==='announce'){
     const box=el('div','sec'),mk=(l,h,c)=>{const r=el('div','row col'),d=el('div');d.append(el('label','',l),el('small','',h));r.append(d,c);box.append(r);return c};
     const ch=el('select');META.channels.forEach(o=>ch.add(new Option('#'+o.name,o.id)));mk('Channel','Where Spidey posts it',ch);
     const ti=el('input');ti.type='text';ti.maxLength=200;ti.placeholder='Announcement';mk('Title','',ti);
@@ -1052,7 +1121,7 @@ function hideBoot(){$('boot').classList.add('gone')}
 $('keep').onchange=()=>{$('dclogin').href='/auth/login?remember='+($('keep').checked?1:0)};
 $('dclogin').onclick=()=>showBoot('Taking you to Discord');
 function moveGlide(){const nv=$('nav');let g=nv.querySelector('.glide');if(!g){g=el('div','glide');nv.prepend(g)}const b=nv.querySelector('button.on');if(!b){g.style.opacity=0;return}g.style.opacity=1;g.style.height=b.offsetHeight+'px';g.style.transform=`translateY(${b.offsetTop}px)`}
-const KW={giveaways:'giveaway prize winner raffle draw reroll',invites:'invite tracker who invited join code',inviters:'invites leaderboard top inviters',leave:'goodbye leave left farewell',joinroles:'auto role join verify account age new members',automod:'spam links invites caps bad words filter punishment',welcome:'greet join leave goodbye autorole embed',leveling:'xp rank level rewards voice',moderation:'log cases ban kick mute',utility:'suggest suggestions',tickets:'ticket category support roles',panels:'ticket panel button form question',otickets:'tickets claimed open',board:'leaderboard top xp',cases:'cases warn ban mute kick history search',announce:'announcement broadcast',messages:'template embed button custom message send'};
+const KW={rroles:'reaction roles button roles self roles dropdown emoji react get role',giveaways:'giveaway prize winner raffle draw reroll',invites:'invite tracker who invited join code',inviters:'invites leaderboard top inviters',leave:'goodbye leave left farewell',joinroles:'auto role join verify account age new members',automod:'spam links invites caps bad words filter punishment',welcome:'greet join leave goodbye autorole embed',leveling:'xp rank level rewards voice',moderation:'log cases ban kick mute',utility:'suggest suggestions',tickets:'ticket category support roles',panels:'ticket panel button form question',otickets:'tickets claimed open',board:'leaderboard top xp',cases:'cases warn ban mute kick history search',announce:'announcement broadcast',messages:'template embed button custom message send'};
 function fsearch(){const q=$('fsearch').value.trim().toLowerCase(),r=$('fsres');r.innerHTML='';if(!q){r.classList.remove('open');return}
   const hits=TABS.filter(([k,t])=>(t+' '+(KW[k]||'')+' '+(DESC[k]||'')).toLowerCase().includes(q)).slice(0,6);
   if(!hits.length){const d=el('div','empty','No feature found');d.style.padding='14px';r.append(d)}
@@ -1192,6 +1261,55 @@ function tplPrev(t){
   if(t.author)bd.append(el('div','eau',sb(t.author)));if(t.title)bd.append(el('div','eti',sb(t.title)));if(t.desc)bd.append(el('div','ede',sb(t.desc)));
   if(t.fields.length){const g=el('div','efs');t.fields.forEach(([n,v])=>{const c=el('div','ef in');c.append(el('b','',sb(n)),el('div','',sb(v)));g.append(c)});bd.append(g)}
   if(t.footer)bd.append(el('div','eft',sb(t.footer)));bx.append(bd);if(t.thumb)bx.append(el('div','eth fake','P'));d.append(bx);return d}
+const newItem=()=>({emoji:'',label:'',role:'',description:''});
+const newRR=()=>({id:'',name:'Roles',mode:'buttons',title:'Pick your roles',description:'Tap a button below to get or remove a role.',color:'#e0222d',unique:false,items:[newItem()],channel:'',message_id:''});
+const RRMODE={buttons:'Buttons',dropdown:'Dropdown menu',reactions:'Emoji reactions'};
+async function renderRR(){
+  CTL=null;PREV=null;touch();const f=$('fields');f.innerHTML='';$('secTitle').textContent='Reaction roles';skel(f);let P;
+  try{P=await api(`/api/guilds/${G.id}/rroles`)}catch(e){f.innerHTML='';f.append(el('div','empty',e.message));return}
+  f.innerHTML='';const top=el('div','bar-top'),nb=el('button','btn pri','New role panel');nb.onclick=()=>rrEditor(null);
+  top.append(el('p','hint','Post a message where members pick their own roles. Choose buttons, a dropdown menu or emoji reactions.'),nb);f.append(top);
+  if(!P.length){f.append(el('div','empty','No role panels yet. Create your first one.'));return}
+  const grid=el('div','pgrid');
+  P.forEach(p=>{const c=el('div','pcard'),a=el('div','acts'),ed=el('button','btn ghost sm','Edit'),dl=el('button','btn ghost sm','Delete');
+    c.append(el('b','',p.name),el('small','',`${p.items.length} role${p.items.length===1?'':'s'}, ${RRMODE[p.mode]}, ${p.message_id?'posted':'not posted yet'}`));
+    ed.onclick=()=>rrEditor(p);dl.onclick=async()=>{if(!confirm('Delete this panel and its message?'))return;try{await api(`/api/guilds/${G.id}/rroles/${p.id}`,{method:'DELETE'});renderRR()}catch(e){alert(e.message)}};
+    a.append(ed,dl);c.append(a);grid.append(c)});f.append(grid);
+}
+function rrEditor(p){
+  const D=p?clone(p):newRR(),f=$('fields');f.innerHTML='';$('secTitle').textContent=p?'Edit role panel':'New role panel';
+  const back=el('button','btn ghost sm','Back to list');back.onclick=()=>{if(cur().dirty()&&!confirm('Discard unsaved changes?'))return;renderRR()};f.append(back);
+  let base=p?clone(p):null,snap=JSON.stringify(D);
+  const saveD=async()=>{const r=await api(`/api/guilds/${G.id}/rroles/${D.id||'new'}`,PJ('PUT',D));D.id=r.id;base=clone(D);snap=JSON.stringify(D)};
+  CTL={dirty:()=>JSON.stringify(D)!==snap,save:saveD,reset:()=>rrEditor(base)};
+  const grid=el('div','tgrid'),L=el('div'),R=el('div','prev'),pv=el('div','dmsg');grid.append(L,R);R.append(el('h3','','Preview'),pv);f.append(grid);
+  const roleName=id=>(META.roles.find(r=>r.id===id)||{}).name||'Role';
+  PREV=()=>{pv.innerHTML='';const hd=el('div','dhead'),im=el('img');im.src='/logo.jpg';im.alt='';hd.append(im,el('b','','Spidey'),el('span','tag','BOT'));pv.append(hd);
+    const bx=el('div','emb'),bd=el('div','embody');bx.style.borderLeftColor=D.color;if(D.title)bd.append(el('div','eti',D.title));if(D.description)bd.append(el('div','ede',D.description));bx.append(bd);pv.append(bx);
+    if(D.mode==='dropdown')pv.append(el('div','selmock','Choose your roles...  \u25be'));
+    else{const r=el('div','dbtns');D.items.forEach(x=>r.append(el('span',D.mode==='buttons'?'dbtn secondary':'rx',D.mode==='buttons'?`${x.emoji||''} ${x.label||roleName(x.role)}`.trim():(x.emoji||'?'))));pv.append(r)}};
+  PREV();
+  const hints={buttons:'Each role gets its own button. Tap to get the role, tap again to remove it.',dropdown:'One menu where members tick the roles they want.',reactions:'Members react to the message with an emoji to get the role.'};
+  let b=el('div','sec');const col=el('input'),ms=fS(D,'mode',Object.entries(RRMODE)),hint=el('small','',hints[D.mode]);col.type='color';col.value=D.color;
+  fR(b,'Panel name','Only you see this',fT(D,'name',60));fR(b,'Style','',ms);b.append(hint);
+  fR(b,'One role at a time','Picking a new role removes the other roles from this panel',fW(D,'unique'));
+  fR(b,'Title','',fT(D,'title',200));fR(b,'Description','',fA(D,'description'),1);fR(b,'Color','',bindv(D,'color',col));L.append(el('h3','','Message'),b);
+  L.append(el('h3','','Roles'));const iw=el('div');L.append(iw);
+  const drawI=()=>{iw.innerHTML='';hint.textContent=hints[D.mode];
+    D.items.forEach((x,i)=>{const c=el('div','qcard'),t2=el('div','two'),em=fT(x,'emoji',64),lb=fT(x,'label',80),rs=fS(x,'role',optsOf(META.roles,'Choose a role'));
+      em.placeholder='Emoji';lb.placeholder=D.mode==='reactions'?'Name (optional)':'Button text';t2.append(em,lb);c.append(t2,rs);
+      if(D.mode==='dropdown'){const ds=fT(x,'description',100);ds.placeholder='Short description (optional)';c.append(ds)}
+      if(D.items.length>1){const rm=el('button','btn ghost sm','Remove');rm.onclick=()=>{D.items.splice(i,1);drawI();touch()};c.append(rm)}iw.append(c)});
+    if(D.items.length<(D.mode==='reactions'?20:25)){const ad=el('button','btn ghost','Add role');ad.style.marginTop='14px';ad.onclick=()=>{D.items.push(newItem());drawI();touch()};iw.append(ad)}};
+  ms.addEventListener('change',drawI);drawI();
+  L.append(el('h3','','Post'));b=el('div','sec');const chs=el('select');optsOf(META.channels,'Choose a channel','#').forEach(([a,n])=>chs.add(new Option(n,a)));chs.value=D.channel||'';
+  fR(b,'Channel','Posting again updates the same message',chs);L.append(b);
+  const out=el('div','toast'),ps=el('button','btn pri','Post to channel'),acts=el('div','acts');acts.style.margin='16px 0';acts.append(ps,out);L.append(acts);
+  ps.onclick=async()=>{out.className='toast';out.textContent='Posting...';
+    try{if(!chs.value)throw new Error('Choose a channel first');await saveD();await api(`/api/guilds/${G.id}/rroles/${D.id}/post`,PJ('POST',{channel:chs.value}));
+      D.channel=chs.value;base=clone(D);snap=JSON.stringify(D);out.textContent='Posted. Members can pick their roles now.';touch()}catch(e){out.className='toast bad';out.textContent=e.message}};
+  touch();
+}
 function webSvg(c){const n='http://www.w3.org/2000/svg',s=document.createElementNS(n,'svg');s.setAttribute('viewBox','0 0 400 400');if(c)s.setAttribute('class',c);
   const A=[0,18,36,54,72,90].map(a=>a*Math.PI/180);let d='';A.forEach(a=>d+=`M0 0L${400*Math.cos(a)} ${400*Math.sin(a)}`);
   for(let r=60;r<=400;r+=65){d+=`M${r} 0`;A.slice(1).forEach((a,i)=>{const m=(a+A[i])/2,q=r*.9;d+=`Q${q*Math.cos(m)} ${q*Math.sin(m)} ${r*Math.cos(a)} ${r*Math.sin(a)}`})}
@@ -1375,6 +1493,106 @@ class InviteTracker(commands.Cog):
         m = member or it.user; c = self.guild(it.guild_id)["counts"].get(str(m.id), {"total": 0, "left": 0})
         await it.response.send_message(f"**{m.display_name}** has **{c['total'] - c['left']}** invites ({c['total']} joined, {c['left']} left).")
 
+# ================= reaction roles (bot side) =================
+_RF = "reactionroles.json"
+def _norm(e): return str(e).replace("\ufe0f", "").strip()
+
+class RRButtons(discord.ui.View):
+    def __init__(self, cog, pid, p):
+        super().__init__(timeout=None)
+        for i, it in enumerate(p["items"]):
+            b = discord.ui.Button(style=discord.ButtonStyle.secondary, label=it["label"] or None, emoji=it["emoji"] or None, custom_id=f"rr:{pid}:{i}", row=i // 5)
+            async def cb(inter, i=i): await cog.toggle(inter, pid, i)
+            b.callback = cb; self.add_item(b)
+
+class RRSelect(discord.ui.View):
+    def __init__(self, cog, pid, p):
+        super().__init__(timeout=None)
+        opts = [discord.SelectOption(label=(it["label"] or "Role")[:100], value=str(i), emoji=it["emoji"] or None, description=it.get("description") or None) for i, it in enumerate(p["items"])]
+        sel = discord.ui.Select(custom_id=f"rr:{pid}:menu", placeholder="Choose your roles...", min_values=0, max_values=1 if p["unique"] else len(opts), options=opts)
+        async def cb(inter): await cog.menu(inter, pid, sel.values)
+        sel.callback = cb; self.add_item(sel)
+
+class ReactionRoles(commands.Cog):
+    def __init__(self, bot): self.bot, self.data = bot, _jl(_RF)
+    def g(self, guild_id): return self.data.setdefault(str(guild_id), {})
+    def save(self): _js(_RF, self.data)
+
+    def message(self, pid, p):
+        from theme import web_embed
+        e = web_embed(p["title"], p["description"], int(p["color"].lstrip("#"), 16))
+        return e, (RRButtons(self, pid, p) if p["mode"] == "buttons" else RRSelect(self, pid, p) if p["mode"] == "dropdown" else None)
+
+    async def cog_load(self):
+        for items in self.data.values():
+            for pid, p in items.items():
+                if p.get("message_id") and p["mode"] != "reactions": self.bot.add_view(self.message(pid, p)[1], message_id=int(p["message_id"]))
+
+    async def publish(self, g, pid, p, ch):
+        e, v = self.message(pid, p); msg = None
+        if p.get("message_id") and p.get("channel") == ch.id:
+            try: msg = await ch.fetch_message(int(p["message_id"])); await msg.edit(embed=e, view=v)
+            except discord.NotFound: msg = None
+        if msg is None: msg = await (ch.send(embed=e, view=v) if v else ch.send(embed=e))
+        if p["mode"] == "reactions":
+            try: await msg.clear_reactions()
+            except discord.HTTPException: pass
+            for it in p["items"]:
+                try: await msg.add_reaction(it["emoji"])
+                except discord.HTTPException: pass
+        p["channel"], p["message_id"] = ch.id, msg.id; self.save()
+
+    def panel_roles(self, guild, p): return [r for r in (guild.get_role(int(x["role"])) for x in p["items"]) if r]
+
+    async def toggle(self, it, pid, i):
+        await it.response.defer(ephemeral=True)
+        p = self.g(it.guild_id).get(pid)
+        role = it.guild.get_role(int(p["items"][i]["role"])) if p else None
+        if not role: return await it.followup.send("That role no longer exists.", ephemeral=True)
+        try:
+            if role in it.user.roles: await it.user.remove_roles(role, reason="Reaction roles"); txt = f"Removed {role.mention}"
+            else:
+                if p["unique"]:
+                    others = [r for r in self.panel_roles(it.guild, p) if r in it.user.roles and r != role]
+                    if others: await it.user.remove_roles(*others, reason="Reaction roles")
+                await it.user.add_roles(role, reason="Reaction roles"); txt = f"You now have {role.mention}"
+        except discord.HTTPException: txt = "I can't manage that role. Ask an admin to move my role above it."
+        await it.followup.send(txt, ephemeral=True)
+
+    async def menu(self, it, pid, values):
+        await it.response.defer(ephemeral=True)
+        p = self.g(it.guild_id).get(pid)
+        if not p: return await it.followup.send("This panel was removed.", ephemeral=True)
+        chosen = {int(p["items"][int(v)]["role"]) for v in values}; allr = self.panel_roles(it.guild, p)
+        add = [r for r in allr if r.id in chosen and r not in it.user.roles]; rem = [r for r in allr if r.id not in chosen and r in it.user.roles]
+        try:
+            if add: await it.user.add_roles(*add, reason="Reaction roles")
+            if rem: await it.user.remove_roles(*rem, reason="Reaction roles")
+            txt = "Your roles are updated."
+        except discord.HTTPException: txt = "I can't manage one of those roles. Ask an admin to move my role higher."
+        await it.followup.send(txt, ephemeral=True)
+
+    async def react(self, pl, add):
+        if not pl.guild_id or pl.user_id == self.bot.user.id: return
+        p = next((x for x in self.g(pl.guild_id).values() if x["mode"] == "reactions" and str(x.get("message_id")) == str(pl.message_id)), None)
+        item = next((x for x in p["items"] if _norm(x["emoji"]) == _norm(pl.emoji)), None) if p else None
+        guild = self.bot.get_guild(pl.guild_id)
+        if not item or not guild: return
+        member, role = (pl.member if add and pl.member else guild.get_member(pl.user_id)), guild.get_role(int(item["role"]))
+        if not member or not role or member.bot: return
+        try:
+            if add:
+                if p["unique"]:
+                    others = [r for r in self.panel_roles(guild, p) if r in member.roles and r != role]
+                    if others: await member.remove_roles(*others, reason="Reaction roles")
+                await member.add_roles(role, reason="Reaction roles")
+            else: await member.remove_roles(role, reason="Reaction roles")
+        except discord.HTTPException: pass
+    @commands.Cog.listener()
+    async def on_raw_reaction_add(self, pl): await self.react(pl, True)
+    @commands.Cog.listener()
+    async def on_raw_reaction_remove(self, pl): await self.react(pl, False)
+
 # ================= bot extension =================
 
 class Dashboard(commands.Cog):
@@ -1384,4 +1602,4 @@ class Dashboard(commands.Cog):
         if self.runner: await self.runner.cleanup()
 
 async def setup(bot):
-    await bot.add_cog(Giveaways(bot)); await bot.add_cog(InviteTracker(bot)); await bot.add_cog(Dashboard(bot))
+    await bot.add_cog(Giveaways(bot)); await bot.add_cog(InviteTracker(bot)); await bot.add_cog(ReactionRoles(bot)); await bot.add_cog(Dashboard(bot))
