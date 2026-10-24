@@ -3,7 +3,10 @@ Env needed: CLIENT_SECRET, REDIRECT_URI (optional DASHBOARD_PORT). Edits your co
 import os, sys, json, time, hashlib, secrets, base64, aiohttp, discord
 from urllib.parse import urlencode
 from aiohttp import web
-from discord.ext import commands
+from discord.ext import commands, tasks
+from discord import app_commands
+from typing import Optional
+import random
 
 _TF = "dashboard_data.json"   # message templates are stored here (next to your other .json files)
 def _tload():
@@ -71,6 +74,17 @@ SECTIONS = [
         F("auto_roles", "Roles given on join", "multirole", "Every new member gets these automatically", group="Roles"),
         F("verify_role", "Verified role", "role", "Given to members who press the verify button", group="Checks"),
         F("min_age_days", "Minimum account age (days)", "number", "Accounts younger than this are turned away. 0 turns it off", min=0, max=365, group="Checks")]),
+
+ dict(id="invites", title="Invite tracker", cog="InviteTracker",
+      container=lambda cog, g: cog.cfg(g.id), save=lambda cog, g: cog.save(),
+      fields=[
+        F("enabled", "Track invites", "bool", "Needs the Manage Server permission so I can see invite uses", group="Tracking"),
+        F("channel", "Invite log channel", "channel", "Every join is announced here", group="Tracking"),
+        F("embed", "Send as embed", "bool", group="Tracking"),
+        F("message", "Join message", "area", "{user} {inviter} {code} {invites} {count} {server}", max=1500, group="Messages"),
+        F("unknown_message", "When the inviter can't be found", "area", "{user} {count} {server}", max=1500, group="Messages"),
+        F("leave_enabled", "Also announce when someone leaves", "bool", group="Messages"),
+        F("leave_message", "Leave message", "area", "{user} {inviter} {invites} {server}", max=1500, group="Messages")]),
 
  dict(id="leveling", title="Leveling", cog="Leveling",
       container=lambda cog, g: cog.guild(g.id)["config"], save=lambda cog, g: (_fix_xp(cog, g), cog.save()),
@@ -293,6 +307,8 @@ def build(bot) -> web.Application:
         if L: ok = bool(L.guild(g.id)["config"]["enabled"]); out["status"].append(["Leveling", "Members earn XP" if ok else "Off", ok, "leveling"])
         if Mo: ok = bool(Mo.store.guild(g.id)["log_channel"]); out["status"].append(["Moderation log", "Logging every action" if ok else "No log channel set", ok, "moderation"])
         if T: ok = bool(T.cfg(g.id)["category"]); out["status"].append(["Tickets", "Ready" if ok else "Not set up", ok, "tickets"])
+        I = bot.get_cog("InviteTracker")
+        if I: c = I.cfg(g.id); ok = bool(c["enabled"] and c["channel"]); out["status"].append(["Invite tracker", "Posting invite messages" if ok else "Off or no channel set", ok, "invites"])
         if L:
             from leveling import level_info
             out["leaderboard"] = [{"name": n(u), "xp": d["xp"], "level": level_info(d["xp"])[0], "messages": d.get("messages", 0)} for u, d in L.ranking(g.id)[:10]]
@@ -505,13 +521,72 @@ def build(bot) -> web.Application:
         tp["channel"], tp["message_id"] = ch.id, msg.id; _tsave(d)
         return J({"ok": True})
 
+    def gwc(request):
+        gid = request.match_info["id"]
+        if (e := deny(request, gid)): return e, None, None
+        cog = bot.get_cog("Giveaways")
+        return (None, bot.get_guild(int(gid)), cog) if cog else (J({"error": "The giveaway module is not loaded"}, status=404), None, None)
+
+    async def gw_list(request):
+        e, g, cog = gwc(request)
+        if e: return e
+        out = []
+        for k, d in cog.g(g.id).items():
+            ch = g.get_channel(int(d["channel"]))
+            out.append({"id": k, "prize": d["prize"], "status": d["status"], "end": d["end"], "winners": d["winners"], "entries": len(d["entries"]),
+                        "channel": ch.name if ch else "deleted-channel", "winner_names": [_name(g, u) for u in d.get("winners_ids", [])]})
+        return J(sorted([x for x in out if x["status"] == "active"], key=lambda x: x["end"]) + sorted([x for x in out if x["status"] != "active"], key=lambda x: -x["end"])[:30])
+
+    async def gw_start(request):
+        e, g, cog = gwc(request)
+        if e: return e
+        try:
+            b = await request.json(); prize = str(b.get("prize", "")).strip()[:200]
+            mult = {"minutes": 60, "hours": 3600, "days": 86400}.get(b.get("unit")); secs = int(float(b.get("dur") or 0) * mult) if mult else 0
+            ch = g.get_channel(int(b.get("channel") or 0)); role = int(b["role"]) if b.get("role") else None
+        except (ValueError, TypeError, AttributeError): return J({"error": "Something in the form is not valid"}, status=400)
+        if not prize: return J({"error": "Write the prize first"}, status=400)
+        if not 60 <= secs <= 30 * 86400: return J({"error": "Pick a duration between 1 minute and 30 days"}, status=400)
+        if not isinstance(ch, discord.TextChannel): return J({"error": "Choose a text channel"}, status=400)
+        if role and not g.get_role(role): return J({"error": "That role is not in this server"}, status=400)
+        try: k = await cog.start(g, ch, int(request["s"]["user"]["id"]), prize, str(b.get("description", "")).strip()[:1000], max(1, min(20, int(b.get("winners") or 1))), secs, role)
+        except discord.HTTPException: return J({"error": "I can't post in that channel. Check my permissions there."}, status=400)
+        return J({"id": k})
+
+    async def gw_act(request):
+        e, g, cog = gwc(request)
+        if e: return e
+        d, act = cog.g(g.id).get(request.match_info["gid"]), request.match_info["act"]
+        if not d: return J({"error": "Giveaway not found"}, status=404)
+        if act == "end" and d["status"] == "active": await cog.finish(g.id, d["id"])
+        elif act == "reroll" and d["status"] != "active": await cog.finish(g.id, d["id"], reroll=True)
+        else: return J({"error": "That action doesn't apply to this giveaway"}, status=400)
+        return J({"ok": True})
+
+    async def gw_del(request):
+        e, g, cog = gwc(request)
+        if e: return e
+        d = cog.g(g.id).pop(request.match_info["gid"], None); cog.save()
+        if d and d["status"] == "active":
+            try: await (await g.get_channel(int(d["channel"])).fetch_message(int(d["message_id"]))).delete()
+            except Exception: pass
+        return J({"ok": True})
+
+    async def inviters(request):
+        gid = request.match_info["id"]
+        if (e := deny(request, gid)): return e
+        cog, g = bot.get_cog("InviteTracker"), bot.get_guild(int(gid))
+        if not cog: return J({"error": "The invite tracker module is not loaded"}, status=404)
+        rows = sorted(((int(u), c) for u, c in cog.guild(g.id)["counts"].items() if c["total"]), key=lambda r: -(r[1]["total"] - r[1]["left"]))[:10]
+        return J([{"name": _name(g, u), "invites": c["total"] - c["left"], "total": c["total"], "left": c["left"]} for u, c in rows])
+
     async def logo(request): return web.Response(body=base64.b64decode(LOGO_B64), content_type="image/jpeg", headers={"Cache-Control": "public, max-age=86400"})
 
     async def index(request): return web.Response(text=INDEX_HTML, content_type="text/html")
     app = web.Application(middlewares=[session_mw])
     app.add_routes([web.get("/", index), web.get("/auth/login", login), web.get("/auth/callback", callback), web.get("/auth/logout", logout),
         web.get("/api/config", config), web.get("/api/me", me), web.get("/api/schema", schema), web.get("/api/guilds", guilds),
-        web.get("/api/guilds/{id}", guild_get), web.get("/api/guilds/{id}/overview", overview), web.get("/logo.jpg", logo), web.get("/api/guilds/{id}/cases", cases_get), web.put("/api/guilds/{id}/cases/{cid}", case_put), web.delete("/api/guilds/{id}/cases/{cid}", case_delete), web.get("/api/guilds/{id}/templates", tpl_get), web.put("/api/guilds/{id}/templates/{tid}", tpl_put), web.delete("/api/guilds/{id}/templates/{tid}", tpl_delete), web.post("/api/guilds/{id}/templates/{tid}/send", tpl_send), web.get("/api/guilds/{id}/panels", panels_get), web.put("/api/guilds/{id}/panels/{pid}", panel_put), web.delete("/api/guilds/{id}/panels/{pid}", panel_delete), web.post("/api/guilds/{id}/panels/{pid}/post", panel_post), web.post("/api/guilds/{id}/announce", announce), web.put("/api/guilds/{id}/{sec}", section_put)])
+        web.get("/api/guilds/{id}", guild_get), web.get("/api/guilds/{id}/overview", overview), web.get("/logo.jpg", logo), web.get("/api/guilds/{id}/giveaways", gw_list), web.post("/api/guilds/{id}/giveaways", gw_start), web.post("/api/guilds/{id}/giveaways/{gid}/{act}", gw_act), web.delete("/api/guilds/{id}/giveaways/{gid}", gw_del), web.get("/api/guilds/{id}/inviters", inviters), web.get("/api/guilds/{id}/cases", cases_get), web.put("/api/guilds/{id}/cases/{cid}", case_put), web.delete("/api/guilds/{id}/cases/{cid}", case_delete), web.get("/api/guilds/{id}/templates", tpl_get), web.put("/api/guilds/{id}/templates/{tid}", tpl_put), web.delete("/api/guilds/{id}/templates/{tid}", tpl_delete), web.post("/api/guilds/{id}/templates/{tid}/send", tpl_send), web.get("/api/guilds/{id}/panels", panels_get), web.put("/api/guilds/{id}/panels/{pid}", panel_put), web.delete("/api/guilds/{id}/panels/{pid}", panel_delete), web.post("/api/guilds/{id}/panels/{pid}/post", panel_post), web.post("/api/guilds/{id}/announce", announce), web.put("/api/guilds/{id}/{sec}", section_put)])
     from urllib.parse import urlparse
     path = (urlparse(REDIRECT or "").path or "").rstrip("/")
     if path and path not in ("/auth/callback", "") and not any(getattr(r, "resource", None) and r.resource.canonical == path for r in app.router.routes()):
@@ -790,17 +865,17 @@ async function loadServers(){
 }
 const SPECIAL=[['overview','Overview'],['board','Leaderboard'],['cases','Mod cases'],['panels','Ticket panels'],['otickets','Open tickets'],['announce','Announce']];
 let TABS=[],OV=null;
-const TITLES={leave:'Leave messages',joinroles:'Join roles',messages:'Messages',overview:'Overview',automod:'AutoMod',welcome:'Welcome',leveling:'Leveling',moderation:'Moderation',utility:'Suggestions',tickets:'Ticket settings',panels:'Ticket panels',otickets:'Open tickets',board:'Leaderboard',cases:'Mod cases',announce:'Announce'};
-const ICON={leave:'\ud83d\udeaa',joinroles:'\ud83c\udfad',messages:'\ud83d\udcac',overview:'\ud83c\udfe0',automod:'\ud83d\udee1\ufe0f',welcome:'\ud83d\udc4b',leveling:'\u2b50',moderation:'\ud83d\udd28',utility:'\ud83d\udca1',tickets:'\u2699\ufe0f',panels:'\ud83c\udfab',otickets:'\ud83d\udceb',board:'\ud83c\udfc6',cases:'\ud83d\udccb',announce:'\ud83d\udce3'};
-const DESC={leave:'Say goodbye when someone leaves the server.',joinroles:'Roles and checks for brand new members.',messages:'Build reusable messages with embeds and buttons, then send them anywhere.',overview:'A quick look at your server and what Spidey is doing in it.',automod:'Rules that keep your chat clean.',welcome:'Greet new members and say goodbye.',leveling:'XP, levels and role rewards.',moderation:'Where moderation actions are logged.',utility:'Where /suggest posts end up.',tickets:'Default settings for the ticket system.',panels:'Build ticket panels with buttons and forms.',otickets:'Tickets that are open right now.',board:'Your most active members.',cases:'The latest moderation actions.',announce:'Post a message as Spidey.'};
-const GROUPS=[['',['overview']],['Modules',['automod','welcome','leave','joinroles','leveling','moderation','utility']],['Tickets',['tickets','panels','otickets']],['Insights',['board','cases']],['Tools',['messages','announce']]];
+const TITLES={giveaways:'Giveaways',invites:'Invite tracker',inviters:'Top inviters',leave:'Leave messages',joinroles:'Join roles',messages:'Messages',overview:'Overview',automod:'AutoMod',welcome:'Welcome',leveling:'Leveling',moderation:'Moderation',utility:'Suggestions',tickets:'Ticket settings',panels:'Ticket panels',otickets:'Open tickets',board:'Leaderboard',cases:'Mod cases',announce:'Announce'};
+const ICON={giveaways:'\ud83c\udf89',invites:'\ud83d\udce8',inviters:'\ud83c\udfc5',leave:'\ud83d\udeaa',joinroles:'\ud83c\udfad',messages:'\ud83d\udcac',overview:'\ud83c\udfe0',automod:'\ud83d\udee1\ufe0f',welcome:'\ud83d\udc4b',leveling:'\u2b50',moderation:'\ud83d\udd28',utility:'\ud83d\udca1',tickets:'\u2699\ufe0f',panels:'\ud83c\udfab',otickets:'\ud83d\udceb',board:'\ud83c\udfc6',cases:'\ud83d\udccb',announce:'\ud83d\udce3'};
+const DESC={giveaways:'Start giveaways and let members enter with one button.',invites:'See who invited each new member and post it to a channel.',inviters:'The members who brought in the most people.',leave:'Say goodbye when someone leaves the server.',joinroles:'Roles and checks for brand new members.',messages:'Build reusable messages with embeds and buttons, then send them anywhere.',overview:'A quick look at your server and what Spidey is doing in it.',automod:'Rules that keep your chat clean.',welcome:'Greet new members and say goodbye.',leveling:'XP, levels and role rewards.',moderation:'Where moderation actions are logged.',utility:'Where /suggest posts end up.',tickets:'Default settings for the ticket system.',panels:'Build ticket panels with buttons and forms.',otickets:'Tickets that are open right now.',board:'Your most active members.',cases:'The latest moderation actions.',announce:'Post a message as Spidey.'};
+const GROUPS=[['',['overview']],['Modules',['automod','welcome','leave','joinroles','invites','leveling','moderation','utility']],['Tickets',['tickets','panels','otickets']],['Insights',['board','inviters','cases']],['Tools',['messages','giveaways','announce']]];
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!==undefined)e.textContent=x;return e};
 const when=t=>new Date(t*1000).toLocaleString([], {dateStyle:'medium',timeStyle:'short'});
 async function openGuild(g){
   $('servers').innerHTML='';$('servers').append(spl('Opening '+g.name));
   try{[META,OV]=await Promise.all([api('/api/guilds/'+g.id),api(`/api/guilds/${g.id}/overview`)])}catch(e){alert(e.message);loadServers();return}
   G=g;VAL=clone(META.values);ORIG=clone(META.values);
-  const have=new Set(['overview','messages','panels','otickets','board','cases','announce',...SCHEMA.filter(s=>VAL[s.id]).map(s=>s.id)]);
+  const have=new Set(['overview','giveaways','inviters','messages','panels','otickets','board','cases','announce',...SCHEMA.filter(s=>VAL[s.id]).map(s=>s.id)]);
   TABS=GROUPS.flatMap(([,ids])=>ids.filter(i=>have.has(i)).map(i=>[i,TITLES[i]]));TAB='overview';CTL=null;
   $('picker').classList.add('hide');$('panel').classList.remove('hide');$('title').textContent=g.name;$('fs').classList.add('on');
   const nv=$('nav');nv.innerHTML='';
@@ -815,7 +890,7 @@ function renderSpecial(k){
   const list=(rows,empty)=>{if(!rows.length){f.append(el('div','empty',empty));return}const box=el('div','sec');rows.forEach(r=>box.append(r));f.append(box)};
   if(k==='overview'){
     const st=el('div','stats');[['Members',OV.stats.members],['Channels',OV.stats.channels],['Roles',OV.stats.roles],['Bot ping',OV.stats.latency+' ms']].forEach(([a,b])=>{const c=el('div','stat');const bb=el('b','',b);countUp(bb,b);c.append(bb,el('small','',a));st.append(c)});f.append(st);
-    f.append(el('h3','','Quick actions'));const qa=el('div','qa');[['panels','Build a ticket panel','Buttons, forms, categories'],['automod','Tune AutoMod','Spam, links, bad words'],['welcome','Set up welcomes','Messages and auto-roles'],['messages','Create a custom message','Embeds and link buttons'],['announce','Send an announcement','Post as Spidey']].filter(([k])=>TABS.some(t=>t[0]===k)).forEach(([k,t,d])=>{const b=el('button');b.append(el('span','',(ICON[k]||'')+' '+t),el('small','',d));b.onclick=()=>switchTab(k);qa.append(b)});f.append(qa);
+    f.append(el('h3','','Quick actions'));const qa=el('div','qa');[['panels','Build a ticket panel','Buttons, forms, categories'],['automod','Tune AutoMod','Spam, links, bad words'],['welcome','Set up welcomes','Messages and auto-roles'],['giveaways','Start a giveaway','Winners are picked for you'],['messages','Create a custom message','Embeds and link buttons'],['announce','Send an announcement','Post as Spidey']].filter(([k])=>TABS.some(t=>t[0]===k)).forEach(([k,t,d])=>{const b=el('button');b.append(el('span','',(ICON[k]||'')+' '+t),el('small','',d));b.onclick=()=>switchTab(k);qa.append(b)});f.append(qa);
     f.append(el('h3','','What is switched on'));
     list(OV.status.map(([n,txt,on,tab])=>{const r=el('div','row st'),d=el('div'),b=el('button','btn ghost','Configure');d.append(el('label','',n),el('small','',txt));b.onclick=()=>switchTab(tab);r.append(el('span','dot'+(on?' on':'')),d,b);return r}),'');
   }else if(k==='board'){
@@ -823,7 +898,7 @@ function renderSpecial(k){
     list(L.map((u,i)=>{const r=el('div','row'),d=el('div'),m=el('div','meter');d.append(el('label','',`${i+1}. ${u.name}`),el('small','',`Level ${u.level}, ${u.xp} XP, ${u.messages} messages`));m.append(el('i'));m.firstChild.style.setProperty('--w',(u.xp/top*100)+'%');m.style.setProperty('--w','0');r.append(d,m);return r}),'Nobody has earned XP yet. Turn on Leveling and start chatting.');
   }else if(k==='cases'){renderCases();}else if(k==='otickets'){
     list((OV.tickets||[]).map(t=>{const r=el('div','row'),d=el('div');d.append(el('label','',`#${t.number} ${t.subject}`),el('small','',`Opened by ${t.opener} on ${when(t.created)}. ${t.claimed?'Claimed by '+t.claimed:'Not claimed yet'}`));r.append(d);return r}),'No open tickets.');
-  }else if(k==='panels'){renderPanels();}else if(k==='messages'){renderMessages();}else if(k==='announce'){
+  }else if(k==='panels'){renderPanels();}else if(k==='messages'){renderMessages();}else if(k==='giveaways'){renderGiveaways();}else if(k==='inviters'){renderInviters();}else if(k==='announce'){
     const box=el('div','sec'),mk=(l,h,c)=>{const r=el('div','row col'),d=el('div');d.append(el('label','',l),el('small','',h));r.append(d,c);box.append(r);return c};
     const ch=el('select');META.channels.forEach(o=>ch.add(new Option('#'+o.name,o.id)));mk('Channel','Where Spidey posts it',ch);
     const ti=el('input');ti.type='text';ti.maxLength=200;ti.placeholder='Announcement';mk('Title','',ti);
@@ -960,7 +1035,7 @@ function hideBoot(){$('boot').classList.add('gone')}
 $('keep').onchange=()=>{$('dclogin').href='/auth/login?remember='+($('keep').checked?1:0)};
 $('dclogin').onclick=()=>showBoot('Taking you to Discord');
 function moveGlide(){const nv=$('nav');let g=nv.querySelector('.glide');if(!g){g=el('div','glide');nv.prepend(g)}const b=nv.querySelector('button.on');if(!b){g.style.opacity=0;return}g.style.opacity=1;g.style.height=b.offsetHeight+'px';g.style.transform=`translateY(${b.offsetTop}px)`}
-const KW={leave:'goodbye leave left farewell',joinroles:'auto role join verify account age new members',automod:'spam links invites caps bad words filter punishment',welcome:'greet join leave goodbye autorole embed',leveling:'xp rank level rewards voice',moderation:'log cases ban kick mute',utility:'suggest suggestions',tickets:'ticket category support roles',panels:'ticket panel button form question',otickets:'tickets claimed open',board:'leaderboard top xp',cases:'cases warn ban mute kick history search',announce:'announcement broadcast',messages:'template embed button custom message send'};
+const KW={giveaways:'giveaway prize winner raffle draw reroll',invites:'invite tracker who invited join code',inviters:'invites leaderboard top inviters',leave:'goodbye leave left farewell',joinroles:'auto role join verify account age new members',automod:'spam links invites caps bad words filter punishment',welcome:'greet join leave goodbye autorole embed',leveling:'xp rank level rewards voice',moderation:'log cases ban kick mute',utility:'suggest suggestions',tickets:'ticket category support roles',panels:'ticket panel button form question',otickets:'tickets claimed open',board:'leaderboard top xp',cases:'cases warn ban mute kick history search',announce:'announcement broadcast',messages:'template embed button custom message send'};
 function fsearch(){const q=$('fsearch').value.trim().toLowerCase(),r=$('fsres');r.innerHTML='';if(!q){r.classList.remove('open');return}
   const hits=TABS.filter(([k,t])=>(t+' '+(KW[k]||'')+' '+(DESC[k]||'')).toLowerCase().includes(q)).slice(0,6);
   if(!hits.length){const d=el('div','empty','No feature found');d.style.padding='14px';r.append(d)}
@@ -1055,6 +1130,44 @@ function tplEditor(p){
       D.channel=chs.value;base=clone(D);snap=JSON.stringify(D);out.textContent='Sent!';touch()}catch(e){out.className='toast bad';out.textContent=e.message}};
   touch();
 }
+const rel=t=>{const d=t*1000-Date.now(),m=Math.round(Math.abs(d)/60000),hh=Math.floor(m/60),dd=Math.floor(hh/24),x=dd?`${dd}d ${hh%24}h`:hh?`${hh}h ${m%60}m`:`${m}m`;return d>0?`in ${x}`:`${x} ago`};
+async function renderGiveaways(){
+  CTL=null;PREV=null;touch();const f=$('fields');f.innerHTML='';$('secTitle').textContent='Giveaways';skel(f);let L;
+  try{L=await api(`/api/guilds/${G.id}/giveaways`)}catch(e){f.innerHTML='';f.append(el('div','empty',e.message));return}
+  f.innerHTML='';const top=el('div','bar-top'),nb=el('button','btn pri','Start giveaway');nb.onclick=gwForm;
+  top.append(el('p','hint','Members enter with a button. Spidey picks the winners when the timer ends.'),nb);f.append(top);
+  if(!L.length){f.append(el('div','empty','No giveaways yet. Start your first one.'));return}
+  const grid=el('div','pgrid');
+  L.forEach(x=>{const c=el('div','pcard'),a=el('div','acts'),on=x.status==='active';
+    c.append(el('b','',x.prize),el('small','',`${on?'Ends ':'Ended '}${rel(x.end)}`),el('small','',`${x.entries} entr${x.entries===1?'y':'ies'}, ${x.winners} winner${x.winners===1?'':'s'}, in #${x.channel}`));
+    if(!on)c.append(el('small','',x.winner_names.length?'Won by '+x.winner_names.join(', '):'Nobody entered'));
+    const act=(label,url,method,ask)=>{const b=el('button','btn ghost sm',label);b.onclick=async()=>{if(!confirm(ask))return;try{await api(url,{method});renderGiveaways()}catch(e){alert(e.message)}};a.append(b)};
+    const base=`/api/guilds/${G.id}/giveaways/${x.id}`;
+    if(on){act('End now',base+'/end','POST','End this giveaway now and pick winners?');act('Cancel',base,'DELETE','Cancel this giveaway? No winners will be picked.')}
+    else{act('Reroll',base+'/reroll','POST','Pick new winners?');act('Delete',base,'DELETE','Remove this giveaway from the list?')}
+    c.append(a);grid.append(c)});f.append(grid);
+}
+function gwForm(){
+  CTL=null;PREV=null;touch();const f=$('fields');f.innerHTML='';$('secTitle').textContent='Start a giveaway';
+  const D={prize:'',description:'',winners:1,dur:1,unit:'hours',channel:'',role:''},back=el('button','btn ghost sm','Back to giveaways');back.onclick=renderGiveaways;f.append(back);
+  const b=el('div','sec');b.style.marginTop='16px';
+  fR(b,'Prize','What the winner gets',fT(D,'prize',200));fR(b,'Description','Optional extra details',fA(D,'description'),1);fR(b,'Winners','How many people win',fN(D,'winners',1,20));
+  const dr=el('div','two');dr.style.maxWidth='300px';dr.append(fN(D,'dur',1,999),fS(D,'unit',[['minutes','Minutes'],['hours','Hours'],['days','Days']]));fR(b,'Duration','Between 1 minute and 30 days',dr);
+  fR(b,'Channel','Where the giveaway is posted',fS(D,'channel',optsOf(META.channels,'Choose a channel','#')));
+  fR(b,'Required role','Optional. Only members with this role can enter',fS(D,'role',optsOf(META.roles,'Anyone can enter')));f.append(b);
+  const out=el('div','toast'),go=el('button','btn pri','Start giveaway'),acts=el('div','acts');acts.style.margin='16px 0';acts.append(go,out);f.append(acts);
+  go.onclick=async()=>{out.className='toast';out.textContent='Starting...';
+    try{if(!D.prize.trim())throw new Error('Write the prize first');if(!D.channel)throw new Error('Choose a channel');await api(`/api/guilds/${G.id}/giveaways`,PJ('POST',D));renderGiveaways()}
+    catch(e){out.className='toast bad';out.textContent=e.message}};
+}
+async function renderInviters(){
+  CTL=null;PREV=null;touch();const f=$('fields');f.innerHTML='';$('secTitle').textContent='Top inviters';skel(f);let L;
+  try{L=await api(`/api/guilds/${G.id}/inviters`)}catch(e){f.innerHTML='';f.append(el('div','empty',e.message));return}
+  f.innerHTML='';if(!L.length){f.append(el('div','empty','No invites tracked yet. Turn on the Invite tracker and new members will be counted.'));return}
+  const top=Math.max(1,L[0].invites),box=el('div','sec');
+  L.forEach((u,i)=>{const r=el('div','row'),d=el('div'),m=el('div','meter');d.append(el('label','',`${i+1}. ${u.name}`),el('small','',`${u.invites} invites (${u.total} joined, ${u.left} left)`));
+    m.append(el('i'));m.firstChild.style.setProperty('--w',Math.max(4,u.invites/top*100)+'%');r.append(d,m);box.append(r)});f.append(box);
+}
 function webSvg(c){const n='http://www.w3.org/2000/svg',s=document.createElementNS(n,'svg');s.setAttribute('viewBox','0 0 400 400');if(c)s.setAttribute('class',c);
   const A=[0,18,36,54,72,90].map(a=>a*Math.PI/180);let d='';A.forEach(a=>d+=`M0 0L${400*Math.cos(a)} ${400*Math.sin(a)}`);
   for(let r=60;r<=400;r+=65){d+=`M${r} 0`;A.slice(1).forEach((a,i)=>{const m=(a+A[i])/2,q=r*.9;d+=`Q${q*Math.cos(m)} ${q*Math.sin(m)} ${r*Math.cos(a)} ${r*Math.sin(a)}`})}
@@ -1073,6 +1186,173 @@ showBoot('Waking Spidey up');init0().catch(()=>{}).finally(()=>setTimeout(hideBo
 </script></body></html>
 '''
 
+
+# ================= giveaways (bot side) =================
+_GF, _IF = "giveaways.json", "invites.json"
+def _jl(path):
+    try:
+        with open(path, encoding="utf8") as f: return json.load(f)
+    except (FileNotFoundError, ValueError): return {}
+def _js(path, d):
+    with open(path, "w", encoding="utf8") as f: json.dump(d, f)
+
+class GwView(discord.ui.View):
+    def __init__(self, cog, k):
+        super().__init__(timeout=None)
+        b = discord.ui.Button(style=discord.ButtonStyle.primary, label="Enter", emoji="\U0001F389", custom_id=f"gw:{k}")
+        async def cb(it): await cog.enter(it, k)
+        b.callback = cb; self.add_item(b)
+
+class Giveaways(commands.Cog):
+    def __init__(self, bot): self.bot, self.data, self.dirty = bot, _jl(_GF), set()
+    def g(self, guild_id): return self.data.setdefault(str(guild_id), {})
+    def save(self): _js(_GF, self.data)
+
+    async def cog_load(self):
+        for items in self.data.values():
+            for k, d in items.items():
+                if d["status"] == "active" and d.get("message_id"): self.bot.add_view(GwView(self, k), message_id=int(d["message_id"]))
+        self.loop.start()
+    async def cog_unload(self): self.loop.cancel()
+
+    def embed(self, d):
+        ended, e = d["status"] != "active", discord.Embed(title="\U0001F389 " + d["prize"], color=0x2B2D31 if d["status"] != "active" else 0xE0222D)
+        t = (d.get("description") or "") + ("\n\n" if d.get("description") else "")
+        if ended:
+            w = d.get("winners_ids", [])
+            t += "**Winners:** " + (", ".join(f"<@{x}>" for x in w) if w else "No valid entries") + f"\n**Ended:** <t:{int(d['end'])}:R>"
+        else:
+            t += f"**Ends:** <t:{int(d['end'])}:R> (<t:{int(d['end'])}:f>)\n**Winners:** {d['winners']}"
+            if d.get("role"): t += f"\n**Requires:** <@&{d['role']}>"
+        e.description = t + f"\n**Hosted by:** <@{d['host_id']}>"
+        e.set_footer(text=f"{len(d['entries'])} entries" + (" | Ended" if ended else ""))
+        return e
+
+    async def start(self, guild, ch, host_id, prize, desc, winners, seconds, role):
+        k = secrets.token_hex(4)
+        d = {"id": k, "channel": ch.id, "message_id": 0, "prize": prize, "description": desc, "winners": winners, "end": time.time() + seconds,
+             "host_id": host_id, "role": role, "status": "active", "entries": [], "winners_ids": []}
+        msg = await ch.send(embed=self.embed(d), view=GwView(self, k))
+        d["message_id"] = msg.id; self.g(guild.id)[k] = d; self.save()
+        return k
+
+    async def enter(self, it, k):
+        d = self.g(it.guild_id).get(k)
+        if not d or d["status"] != "active" or time.time() >= d["end"]:
+            return await it.response.send_message("This giveaway has ended.", ephemeral=True)
+        if d.get("role") and not any(r.id == int(d["role"]) for r in it.user.roles):
+            return await it.response.send_message(f"You need the <@&{d['role']}> role to enter.", ephemeral=True)
+        if it.user.id in d["entries"]: d["entries"].remove(it.user.id); txt = "You left the giveaway."
+        else: d["entries"].append(it.user.id); txt = "You're in! Good luck \U0001F340"
+        self.save(); self.dirty.add((it.guild_id, k))
+        await it.response.send_message(txt, ephemeral=True)
+
+    async def finish(self, guild_id, k, reroll=False):
+        d, guild = self.g(guild_id).get(k), self.bot.get_guild(int(guild_id))
+        if not d or not guild: return
+        pool = [u for u in d["entries"] if (m := guild.get_member(u)) and not m.bot]
+        d["winners_ids"] = random.sample(pool, min(d["winners"], len(pool)))
+        d["status"] = "ended"
+        if not reroll: d["end"] = min(d["end"], time.time())
+        self.save()
+        ch, msg = guild.get_channel(int(d["channel"])), None
+        if not ch: return
+        try: msg = await ch.fetch_message(int(d["message_id"])); await msg.edit(embed=self.embed(d), view=None)
+        except discord.HTTPException: pass
+        win = ", ".join(f"<@{x}>" for x in d["winners_ids"])
+        txt = (f"\U0001F389 {'New winner(s): ' if reroll else 'Congratulations '}{win}! You won **{d['prize']}**" if win else f"No valid entries for **{d['prize']}**, so nobody won.")
+        try:
+            if msg: await ch.send(txt, reference=msg)
+            else: await ch.send(txt)
+        except discord.HTTPException: pass
+
+    @tasks.loop(seconds=15)
+    async def loop(self):
+        now = time.time()
+        for gid, items in list(self.data.items()):
+            for k, d in list(items.items()):
+                if d["status"] != "active": continue
+                if d["end"] <= now: await self.finish(gid, k)
+                elif (int(gid), k) in self.dirty:
+                    self.dirty.discard((int(gid), k)); guild = self.bot.get_guild(int(gid)); ch = guild.get_channel(int(d["channel"])) if guild else None
+                    try: msg = await ch.fetch_message(int(d["message_id"])); await msg.edit(embed=self.embed(d))
+                    except (discord.HTTPException, AttributeError): pass
+    @loop.before_loop
+    async def _wait(self): await self.bot.wait_until_ready()
+
+# ================= invite tracker (bot side) =================
+class InviteTracker(commands.Cog):
+    DEF = {"enabled": False, "channel": None, "embed": True,
+           "message": "{user} joined using invite `{code}` from {inviter}. {inviter} now has **{invites}** invites.",
+           "unknown_message": "{user} joined the server, but I couldn't tell who invited them.",
+           "leave_enabled": False, "leave_message": "{user} left. They were invited by {inviter}."}
+    def __init__(self, bot): self.bot, self.data, self.cache = bot, _jl(_IF), {}
+    def guild(self, gid):
+        g = self.data.setdefault(str(gid), {})
+        for k in ("cfg", "joins", "counts"): g.setdefault(k, {})
+        return g
+    def cfg(self, gid):
+        c = self.guild(gid)["cfg"]
+        for k, v in self.DEF.items(): c.setdefault(k, v)
+        return c
+    def save(self): _js(_IF, self.data)
+    def total(self, gid, uid):
+        c = self.guild(gid)["counts"].get(str(uid), {"total": 0, "left": 0}); return c["total"] - c["left"]
+
+    async def snap(self, guild):
+        try: self.cache[guild.id] = {i.code: (i.uses or 0) for i in await guild.invites()}
+        except discord.HTTPException: self.cache.pop(guild.id, None)
+    @commands.Cog.listener()
+    async def on_ready(self):
+        for g in self.bot.guilds: await self.snap(g)
+    @commands.Cog.listener()
+    async def on_guild_join(self, guild): await self.snap(guild)
+    @commands.Cog.listener()
+    async def on_invite_create(self, inv): self.cache.setdefault(inv.guild.id, {})[inv.code] = inv.uses or 0
+    @commands.Cog.listener()
+    async def on_invite_delete(self, inv): self.cache.get(inv.guild.id, {}).pop(inv.code, None)
+
+    def fmt(self, tpl, m, inviter=None, code=None):
+        return (tpl.replace("{user}", m.mention).replace("{inviter}", f"<@{inviter}>" if inviter else "Unknown").replace("{code}", code or "unknown")
+                   .replace("{invites}", str(self.total(m.guild.id, inviter)) if inviter else "0").replace("{count}", str(m.guild.member_count)).replace("{server}", m.guild.name))
+    async def post(self, ch, as_embed, text):
+        try:
+            if as_embed: await ch.send(embed=discord.Embed(description=text, color=0xE0222D), allowed_mentions=discord.AllowedMentions.none())
+            else: await ch.send(text, allowed_mentions=discord.AllowedMentions.none())
+        except discord.HTTPException: pass
+
+    @commands.Cog.listener()
+    async def on_member_join(self, m):
+        if m.bot: return
+        used, old = None, self.cache.get(m.guild.id)
+        try:
+            now = {i.code: i for i in await m.guild.invites()}
+            if old is not None: used = next((i for c, i in now.items() if (i.uses or 0) > old.get(c, 0)), None)
+            self.cache[m.guild.id] = {c: (i.uses or 0) for c, i in now.items()}
+        except discord.HTTPException: pass
+        inviter = used.inviter.id if used and used.inviter else None
+        g = self.guild(m.guild.id); g["joins"][str(m.id)] = {"inviter": inviter, "code": used.code if used else None}
+        if inviter: g["counts"].setdefault(str(inviter), {"total": 0, "left": 0})["total"] += 1
+        self.save()
+        c = self.cfg(m.guild.id); ch = m.guild.get_channel(int(c["channel"])) if c["channel"] else None
+        if c["enabled"] and ch:
+            await self.post(ch, c["embed"], self.fmt(c["message"] if inviter else c["unknown_message"], m, inviter, used.code if used else None))
+    @commands.Cog.listener()
+    async def on_member_remove(self, m):
+        if m.bot: return
+        g = self.guild(m.guild.id); j = g["joins"].pop(str(m.id), None)
+        if j and j["inviter"]: g["counts"].setdefault(str(j["inviter"]), {"total": 0, "left": 0})["left"] += 1
+        self.save()
+        c = self.cfg(m.guild.id); ch = m.guild.get_channel(int(c["channel"])) if c["channel"] else None
+        if c["enabled"] and c["leave_enabled"] and ch:
+            await self.post(ch, c["embed"], self.fmt(c["leave_message"], m, j["inviter"] if j else None, j["code"] if j else None))
+
+    @app_commands.command(name="invites", description="See how many people someone has invited")
+    @app_commands.guild_only()
+    async def invites(self, it: discord.Interaction, member: Optional[discord.Member] = None):
+        m = member or it.user; c = self.guild(it.guild_id)["counts"].get(str(m.id), {"total": 0, "left": 0})
+        await it.response.send_message(f"**{m.display_name}** has **{c['total'] - c['left']}** invites ({c['total']} joined, {c['left']} left).")
+
 # ================= bot extension =================
 
 class Dashboard(commands.Cog):
@@ -1081,4 +1361,5 @@ class Dashboard(commands.Cog):
     async def cog_unload(self):
         if self.runner: await self.runner.cleanup()
 
-async def setup(bot): await bot.add_cog(Dashboard(bot))
+async def setup(bot):
+    await bot.add_cog(Giveaways(bot)); await bot.add_cog(InviteTracker(bot)); await bot.add_cog(Dashboard(bot))
