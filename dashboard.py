@@ -1,6 +1,6 @@
 """Spidey web dashboard (single file). Put this next to bot.py, then in bot.py: await self.load_extension("dashboard")
 Env needed: CLIENT_SECRET, REDIRECT_URI (optional DASHBOARD_PORT). Edits your cogs' live settings."""
-import os, sys, json, secrets, base64, aiohttp, discord
+import os, sys, json, time, hashlib, secrets, base64, aiohttp, discord
 from urllib.parse import urlencode
 from aiohttp import web
 from discord.ext import commands
@@ -187,6 +187,17 @@ M = sys.modules[__name__]
 
 API = "https://discord.com/api/v10"
 SESSIONS: dict = {}
+_SF = "dashboard_sessions.json"   # remembered logins (only a hash of each cookie is stored, never the cookie itself)
+_hash = lambda sid: hashlib.sha256(sid.encode()).hexdigest()
+def _sload():
+    try:
+        with open(_SF, encoding="utf8") as f: d = json.load(f)
+        SESSIONS.update({k: v for k, v in d.items() if v.get("exp", 0) > time.time()})
+    except (FileNotFoundError, ValueError, AttributeError): pass
+def _spersist():
+    keep = {k: v for k, v in SESSIONS.items() if v.get("remember") and v.get("user") and v.get("exp", 0) > time.time()}
+    with open(_SF, "w", encoding="utf8") as f: json.dump(keep, f)
+_sload()
 SEC = {s["id"]: s for s in M.SECTIONS}
 
 def can_manage(g):
@@ -194,11 +205,15 @@ def can_manage(g):
 
 @web.middleware
 async def session_mw(request, handler):
-    sid = request.cookies.get("sid")
-    if sid not in SESSIONS: sid = secrets.token_hex(24); SESSIONS[sid] = {}
-    request["s"] = SESSIONS[sid]
+    sid = request.cookies.get("sid"); key = _hash(sid) if sid else None
+    if not key or key not in SESSIONS or SESSIONS[key].get("exp", time.time() + 1) < time.time():
+        if len(SESSIONS) > 2000:
+            for k in [k for k, v in SESSIONS.items() if not v.get("user")]: SESSIONS.pop(k, None)
+        sid = secrets.token_hex(24); key = _hash(sid); SESSIONS[key] = {}
+    request["s"], request["k"] = SESSIONS[key], key
     resp = await handler(request)
-    resp.set_cookie("sid", sid, httponly=True, samesite="Lax", max_age=7 * 86400)
+    resp.set_cookie("sid", sid, httponly=True, samesite="Lax", secure=(os.getenv("REDIRECT_URI") or "").startswith("https"),
+                    max_age=30 * 86400 if request["s"].get("remember") else None)
     return resp
 
 def build(bot) -> web.Application:
@@ -211,9 +226,13 @@ def build(bot) -> web.Application:
         if not request["s"].get("user"): return J({"error": "Not logged in"}, status=401)
         if gid and (gid not in request["s"]["guilds"] or not bot.get_guild(int(gid))):
             return J({"error": "You cannot manage this server, or Spidey is not in it"}, status=403)
+        if gid:   # live check, so a remembered login stops working the moment someone loses their permissions
+            g = bot.get_guild(int(gid)); m = g.get_member(int(request["s"]["user"]["id"]))
+            if m and not (g.owner_id == m.id or m.guild_permissions.administrator or m.guild_permissions.manage_guild):
+                return J({"error": "You no longer have permission to manage this server"}, status=403)
 
     async def login(request):
-        request["s"]["state"] = secrets.token_hex(16)
+        request["s"]["state"] = secrets.token_hex(16); request["s"]["remember"] = request.query.get("remember") == "1"
         return web.HTTPFound("https://discord.com/oauth2/authorize?" + urlencode({"client_id": bot.user.id, "redirect_uri": REDIRECT,
             "response_type": "code", "scope": "identify guilds", "state": request["s"]["state"]}))
     async def callback(request):
@@ -226,9 +245,12 @@ def build(bot) -> web.Application:
             s["user"] = await dreq("GET", "/users/@me", headers=h)
             gl = [g for g in await dreq("GET", "/users/@me/guilds", headers=h) if can_manage(g)]
             s["guild_list"], s["guilds"] = gl, [g["id"] for g in gl]
+            s["exp"] = time.time() + (30 if s.get("remember") else 1) * 86400
+            if s.get("remember"): _spersist()
             return web.HTTPFound("/")
         except Exception: return web.HTTPFound("/?error=login")
-    async def logout(request): request["s"].clear(); return web.HTTPFound("/")
+    async def logout(request):
+        request["s"].clear(); SESSIONS.pop(request["k"], None); _spersist(); return web.HTTPFound("/")
     async def config(request): return J({"clientId": str(bot.user.id)})
     async def me(request): return J({"user": request["s"].get("user")})
     async def schema(request): return deny(request) or J(M.schema())
@@ -658,12 +680,26 @@ html,body{height:100%;overflow:hidden}
 .prev{top:12px}
 .login{height:100vh;height:100dvh;overflow-x:hidden;overflow-y:auto}
 @media(max-width:720px){.layout{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr)}.layout nav{flex-direction:row;overflow-x:auto;overflow-y:hidden;padding:6px 0;align-self:start}#app>.wrap{padding:16px 14px 0}#main{padding-right:0}}
+.keep{display:inline-flex;align-items:center;gap:10px;margin-top:20px;cursor:pointer;color:#a9acc9;font-size:.9rem;user-select:none;position:relative}
+.keep input{position:absolute;opacity:0;width:0;height:0}
+.keep .box{width:22px;height:22px;border-radius:7px;border:2px solid #5b5d7a;display:grid;place-items:center;transition:background .2s,border-color .2s,transform .2s,box-shadow .2s}
+.keep .box svg{width:16px;height:16px;fill:none;stroke:#fff;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:24;stroke-dashoffset:24;transition:stroke-dashoffset .3s .05s}
+.keep input:checked+.box{background:#e0222d;border-color:#e0222d;box-shadow:0 0 16px #e0222d88}.keep input:checked+.box svg{stroke-dashoffset:0}
+.keep:active .box{transform:scale(.86)}.keep input:focus-visible+.box{outline:2px solid #fff;outline-offset:2px}
+.spl{display:grid;justify-items:center;gap:8px;padding:48px 0;color:var(--mu)}
+.spl .thr{display:flex;flex-direction:column;align-items:center;transform-origin:50% 0;animation:bob 1.8s ease-in-out infinite}
+.spl .thr i{width:2px;height:40px;background:linear-gradient(#d9dcf3,#e0222d)}
+.lg path{fill:none;stroke:#e0222d;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}.bd{fill:#e0222d}
+.lg{transform-origin:24px 27px;animation:legs .4s ease-in-out infinite alternate}.lg.r{animation-direction:alternate-reverse}
+@keyframes legs{from{transform:rotate(-8deg)}to{transform:rotate(8deg)}}@keyframes bob{0%,100%{transform:translateY(-16px)}50%{transform:translateY(8px)}}
+.boot{position:fixed;inset:0;z-index:100;display:grid;place-items:center;background:#0b0b16;color:#a9acc9;transition:opacity .45s}.boot.gone{opacity:0;pointer-events:none}
 </style></head><body>
-<div class="prog" id="prog"></div>
+<div class="prog" id="prog"></div><div class="boot" id="boot"></div>
 <section id="login" class="login hide"><div class="hang"><i class="cord"></i><img class="medal" src="/logo.jpg" alt="Spidey"></div><div class="in">
   <h1>Spidey</h1>
   <p>Your server's control room. Tune AutoMod, welcomes, levels and tickets here instead of typing commands.</p>
-  <a class="btn dc" href="/auth/login">Log in with Discord</a>
+  <a class="btn dc" id="dclogin" href="/auth/login?remember=1">Log in with Discord</a>
+  <div><label class="keep"><input type="checkbox" id="keep" checked><span class="box"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>Keep me logged in on this device</label></div>
   <small>We only read your name and the list of servers you manage.</small><div id="loginErr" class="err"></div>
 </div></section>
 <section id="app" class="hide">
@@ -682,7 +718,7 @@ let SCHEMA=[],CID='',G=null,META=null,VAL={},ORIG={},TAB='',ready=false;
 const clone=o=>JSON.parse(JSON.stringify(o));
 const isDirty=()=>!!ORIG[TAB]&&JSON.stringify(VAL[TAB])!==JSON.stringify(ORIG[TAB]);
 let CTL=null,busy=false,PREV=null;
-async function init(){
+async function init0(){
   const q=new URLSearchParams(location.search).get('error');
   const {user}=await api('/api/me');
   if(!user){$('login').classList.remove('hide');if(q)$('loginErr').textContent=q==='state'?'Login expired. Try again.':'Discord login failed. Try again.';return}
@@ -692,7 +728,7 @@ async function init(){
   loadServers();
 }
 async function loadServers(){
-  const box=$('servers');box.textContent='Loading servers...';let gs;
+  const box=$('servers');box.innerHTML='';box.append(spl('Finding your servers'));let gs;
   try{gs=await api('/api/guilds')}catch(e){box.textContent=e.message;return}
   const draw=()=>{const q=$('q').value.trim().toLowerCase();box.innerHTML='';
     const list=gs.filter(g=>g.name.toLowerCase().includes(q)).sort((a,b)=>b.botIn-a.botIn);
@@ -715,7 +751,8 @@ const GROUPS=[['',['overview']],['Modules',['automod','welcome','leave','joinrol
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!==undefined)e.textContent=x;return e};
 const when=t=>new Date(t*1000).toLocaleString([], {dateStyle:'medium',timeStyle:'short'});
 async function openGuild(g){
-  try{[META,OV]=await Promise.all([api('/api/guilds/'+g.id),api(`/api/guilds/${g.id}/overview`)])}catch(e){return alert(e.message)}
+  $('servers').innerHTML='';$('servers').append(spl('Opening '+g.name));
+  try{[META,OV]=await Promise.all([api('/api/guilds/'+g.id),api(`/api/guilds/${g.id}/overview`)])}catch(e){alert(e.message);loadServers();return}
   G=g;VAL=clone(META.values);ORIG=clone(META.values);
   const have=new Set(['overview','messages','panels','otickets','board','cases','announce',...SCHEMA.filter(s=>VAL[s.id]).map(s=>s.id)]);
   TABS=GROUPS.flatMap(([,ids])=>ids.filter(i=>have.has(i)).map(i=>[i,TITLES[i]]));TAB='overview';CTL=null;
@@ -865,7 +902,13 @@ function panelEditor(p){
       D.channel=chs.value;base=clone(D);snap=JSON.stringify(D);out.textContent='Posted. Members can use the buttons now.';touch()}
     catch(e){out.className='toast bad';out.textContent=e.message}};
 }
-const skel=(f,n)=>{for(let i=0;i<n;i++)f.append(el('div','skel'))};
+const SPIDER='<svg viewBox="0 0 48 48" width="48" height="48"><g class="lg l"><path d="M20 24L9 14L4 20M20 27L7 27L3 34M20 30L9 40L6 46M21 21L14 8L9 8"/></g><g class="lg r"><path d="M28 24L39 14L44 20M28 27L41 27L45 34M28 30L39 40L42 46M27 21L34 8L39 8"/></g><ellipse cx="24" cy="29" rx="6.5" ry="9" class="bd"/><circle cx="24" cy="18.5" r="4.6" class="bd"/></svg>';
+const spl=t=>{const d=el('div','spl');d.innerHTML=`<div class="thr"><i></i>${SPIDER}</div>`;d.append(el('small','',t||'Loading'));return d};
+const skel=f=>f.append(spl('Loading'));
+function showBoot(t){const b=$('boot');b.innerHTML='';b.append(spl(t));b.classList.remove('gone')}
+function hideBoot(){$('boot').classList.add('gone')}
+$('keep').onchange=()=>{$('dclogin').href='/auth/login?remember='+($('keep').checked?1:0)};
+$('dclogin').onclick=()=>showBoot('Taking you to Discord');
 function moveGlide(){const nv=$('nav');let g=nv.querySelector('.glide');if(!g){g=el('div','glide');nv.prepend(g)}const b=nv.querySelector('button.on');if(!b){g.style.opacity=0;return}g.style.opacity=1;g.style.height=b.offsetHeight+'px';g.style.transform=`translateY(${b.offsetTop}px)`}
 const KW={leave:'goodbye leave left farewell',joinroles:'auto role join verify account age new members',automod:'spam links invites caps bad words filter punishment',welcome:'greet join leave goodbye autorole embed',leveling:'xp rank level rewards voice',moderation:'log cases ban kick mute',utility:'suggest suggestions',tickets:'ticket category support roles',panels:'ticket panel button form question',otickets:'tickets claimed open',board:'leaderboard top xp',cases:'cases warn ban mute kick history search',announce:'announcement broadcast',messages:'template embed button custom message send'};
 function fsearch(){const q=$('fsearch').value.trim().toLowerCase(),r=$('fsres');r.innerHTML='';if(!q){r.classList.remove('open');return}
@@ -969,7 +1012,7 @@ function webSvg(c){const n='http://www.w3.org/2000/svg',s=document.createElement
 $('login').prepend(webSvg(),webSvg('r'));document.body.append(webSvg('bgweb'));
 const setHH=()=>{const hd=document.querySelector('#app>header');if(hd)document.documentElement.style.setProperty('--hh',hd.offsetHeight+'px')};
 addEventListener('resize',setHH);new ResizeObserver(setHH).observe(document.querySelector('#app>header'));
-init();
+showBoot('Waking Spidey up');init0().catch(()=>{}).finally(()=>setTimeout(hideBoot,300));
 </script></body></html>
 '''
 
