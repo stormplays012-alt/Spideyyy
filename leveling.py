@@ -9,7 +9,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from theme import web_embed, RED, BLUE, DARK
+from theme import cozy_embed, PEACH, LAVENDER, NIGHT
 from moderation import fail
 
 DATA_FILE = "leveling.json"
@@ -28,9 +28,9 @@ DEFAULT_CFG = {
 }
 
 LEVEL_UP_LINES = [
-    "swung up to **level {level}**! 🕷️⬆️",
-    "spun a stronger web and hit **level {level}**! 🕸️",
-    "just reached **level {level}**! My spider-sense is tingling! 🕷️",
+    "climbed up to **level {level}**! 🌙⬆️",
+    "lit a brighter lantern and hit **level {level}**! 🏮",
+    "just reached **level {level}**! The stars are shining for you! ✨",
 ]
 
 
@@ -87,13 +87,13 @@ class LeaderboardView(discord.ui.View):
             lvl = level_info(data["xp"])[0]
             badge = medals[i - 1] if i <= 3 else f"**{i}.**"
             lines.append(f"{badge} <@{uid}> — Level **{lvl}** • {data['xp']:,} XP")
-        embed = web_embed("Web Leaderboard", "\n".join(lines) or "Nobody has earned XP yet. 🕸️", BLUE)
-        embed.set_footer(text=f"Page {self.page + 1}/{self._pages()} • 🕸️ Spidey")
+        embed = cozy_embed("Starlit Leaderboard", "\n".join(lines) or "Nobody has earned XP yet. ☁️", LAVENDER)
+        embed.set_footer(text=f"Page {self.page + 1}/{self._pages()} • 🌙 Hamsafar")
         return embed
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.requester_id:
-            await interaction.response.send_message("Run `/leaderboard` yourself to flip pages. 🕷️", ephemeral=True)
+            await interaction.response.send_message("Run `/leaderboard` yourself to flip pages. 🌙", ephemeral=True)
             return False
         return True
 
@@ -189,7 +189,7 @@ class Leveling(commands.Cog):
         text = f"{member.mention} {random.choice(LEVEL_UP_LINES).format(level=level)}"
         if gained:
             text += "\n🎁 New reward: " + ", ".join(r.mention for r in gained)
-        embed = web_embed("Level Up!", text, BLUE)
+        embed = cozy_embed("Level Up!", text, LAVENDER)
         embed.set_thumbnail(url=member.display_avatar.url)
         try:
             await dest.send(embed=embed)
@@ -212,9 +212,9 @@ class Leveling(commands.Cog):
         to_remove = [] if stack else [r for r in earned[:-1] if r in member.roles and r < guild.me.top_role]
         try:
             if to_add:
-                await member.add_roles(*to_add, reason="Spidey leveling reward")
+                await member.add_roles(*to_add, reason="Hamsafar leveling reward")
             if to_remove:
-                await member.remove_roles(*to_remove, reason="Spidey leveling reward (replaced)")
+                await member.remove_roles(*to_remove, reason="Hamsafar leveling reward (replaced)")
         except discord.HTTPException:
             return []
         return to_add
@@ -265,7 +265,7 @@ class Leveling(commands.Cog):
     async def rank(self, interaction: discord.Interaction, member: Optional[discord.Member] = None):
         member = member or interaction.user
         if member.bot:
-            return await fail(interaction, "Bots don't earn XP. 🕷️")
+            return await fail(interaction, "Bots don't earn XP. 🌙")
         g = self.guild(interaction.guild.id)
         user = g["users"].get(str(member.id), {"xp": 0, "messages": 0})
         level, cur, need = level_info(user["xp"])
@@ -274,7 +274,7 @@ class Leveling(commands.Cog):
         desc = (f"**Level {level}** • Rank **{position}**\n"
                 f"{progress_bar(cur, need)}  `{cur:,} / {need:,} XP`\n\n"
                 f"✨ **Total XP:** {user['xp']:,}\n💬 **Messages:** {user['messages']:,}")
-        embed = web_embed(f"{member.display_name}'s Web Rank", desc, BLUE)
+        embed = cozy_embed(f"{member.display_name}'s Journey Rank", desc, LAVENDER)
         embed.set_thumbnail(url=member.display_avatar.url)
         await interaction.response.send_message(embed=embed)
 
@@ -301,14 +301,14 @@ class Leveling(commands.Cog):
             f"🙈 **Ignored channels:** {ign}\n"
             f"🏅 **Rewards set:** {len(g['rewards'])}"
         )
-        await interaction.response.send_message(embed=web_embed("Leveling Web", desc, BLUE), ephemeral=True)
+        await interaction.response.send_message(embed=cozy_embed("Leveling Journey", desc, LAVENDER), ephemeral=True)
 
     @levelconfig.command(name="toggle", description="Turn leveling on or off")
     async def cfg_toggle(self, interaction: discord.Interaction, enabled: bool):
         self.guild(interaction.guild.id)["config"]["enabled"] = enabled
         self.dirty = True
-        await interaction.response.send_message(embed=web_embed(
-            "Leveling Updated!", f"Leveling is now {'🟢 **on**' if enabled else '🔴 **off**'}.", BLUE))
+        await interaction.response.send_message(embed=cozy_embed(
+            "Leveling Updated!", f"Leveling is now {'🟢 **on**' if enabled else '🔴 **off**'}.", LAVENDER))
 
     @levelconfig.command(name="xp", description="Set message XP range and cooldown")
     @app_commands.describe(minimum="Min XP per message", maximum="Max XP per message", cooldown="Seconds between XP messages")
@@ -326,23 +326,23 @@ class Leveling(commands.Cog):
         if c["xp_min"] > c["xp_max"]:
             c["xp_min"], c["xp_max"] = c["xp_max"], c["xp_min"]
         self.dirty = True
-        await interaction.response.send_message(embed=web_embed(
-            "XP Updated!", f"Message XP: **{c['xp_min']}–{c['xp_max']}**, cooldown **{c['cooldown']}s**.", BLUE))
+        await interaction.response.send_message(embed=cozy_embed(
+            "XP Updated!", f"Message XP: **{c['xp_min']}–{c['xp_max']}**, cooldown **{c['cooldown']}s**.", LAVENDER))
 
     @levelconfig.command(name="voicexp", description="XP per minute in voice (0 = off)")
     async def cfg_voicexp(self, interaction: discord.Interaction, amount: app_commands.Range[int, 0, 200]):
         self.guild(interaction.guild.id)["config"]["voice_xp"] = amount
         self.dirty = True
-        await interaction.response.send_message(embed=web_embed(
+        await interaction.response.send_message(embed=cozy_embed(
             "Voice XP Updated!", f"Voice XP is now **{amount}/min**" + (" (off)" if amount == 0 else "") +
-            ".\nOnly members who aren't deafened, in a call with 2+ humans, count.", BLUE))
+            ".\nOnly members who aren't deafened, in a call with 2+ humans, count.", LAVENDER))
 
     @levelconfig.command(name="multiplier", description="Multiply all XP gains (e.g. 2 for double XP weekend)")
     async def cfg_multiplier(self, interaction: discord.Interaction, value: app_commands.Range[float, 0.1, 10.0]):
         self.guild(interaction.guild.id)["config"]["multiplier"] = round(value, 2)
         self.dirty = True
-        await interaction.response.send_message(embed=web_embed(
-            "Multiplier Set!", f"XP multiplier is now **{round(value, 2)}x**.", BLUE))
+        await interaction.response.send_message(embed=cozy_embed(
+            "Multiplier Set!", f"XP multiplier is now **{round(value, 2)}x**.", LAVENDER))
 
     @levelconfig.command(name="announce", description="Level-up messages on/off and where to send them")
     @app_commands.describe(enabled="Send level-up messages?", channel="Channel (empty = where they chatted)")
@@ -353,15 +353,15 @@ class Leveling(commands.Cog):
         c["announce_channel"] = channel.id if channel else None
         self.dirty = True
         where = channel.mention if channel else "the channel where they chat"
-        await interaction.response.send_message(embed=web_embed(
-            "Announcements Updated!", f"Level-up messages: **{'on' if enabled else 'off'}** → {where}", BLUE))
+        await interaction.response.send_message(embed=cozy_embed(
+            "Announcements Updated!", f"Level-up messages: **{'on' if enabled else 'off'}** → {where}", LAVENDER))
 
     @levelconfig.command(name="stack", description="Keep old reward roles when earning new ones?")
     async def cfg_stack(self, interaction: discord.Interaction, stack: bool):
         self.guild(interaction.guild.id)["config"]["stack_rewards"] = stack
         self.dirty = True
-        await interaction.response.send_message(embed=web_embed(
-            "Rewards Updated!", "Members " + ("**keep** all reward roles." if stack else "only keep the **highest** reward role."), BLUE))
+        await interaction.response.send_message(embed=cozy_embed(
+            "Rewards Updated!", "Members " + ("**keep** all reward roles." if stack else "only keep the **highest** reward role."), LAVENDER))
 
     @levelconfig.command(name="ignorechannel", description="Toggle a channel that gives no XP")
     async def cfg_ignore(self, interaction: discord.Interaction, channel: discord.TextChannel):
@@ -373,7 +373,7 @@ class Leveling(commands.Cog):
             ids.append(channel.id)
             text = f"{channel.mention} no longer gives XP. 🙈"
         self.dirty = True
-        await interaction.response.send_message(embed=web_embed("Ignore List Updated!", text, BLUE))
+        await interaction.response.send_message(embed=cozy_embed("Ignore List Updated!", text, LAVENDER))
 
     # ---------- admin: manage users
     @levelconfig.command(name="setxp", description="Set a member's total XP")
@@ -384,8 +384,8 @@ class Leveling(commands.Cog):
         self.dirty = True
         level = level_info(xp)[0]
         await self.apply_rewards(member, level)
-        await interaction.response.send_message(embed=web_embed(
-            "XP Set!", f"{member.mention} now has **{xp:,} XP** (level **{level}**).", BLUE))
+        await interaction.response.send_message(embed=cozy_embed(
+            "XP Set!", f"{member.mention} now has **{xp:,} XP** (level **{level}**).", LAVENDER))
 
     @levelconfig.command(name="setlevel", description="Set a member to a specific level")
     async def cfg_setlevel(self, interaction: discord.Interaction, member: discord.Member,
@@ -394,15 +394,15 @@ class Leveling(commands.Cog):
         user["xp"] = total_xp_for_level(level)
         self.dirty = True
         await self.apply_rewards(member, level)
-        await interaction.response.send_message(embed=web_embed(
-            "Level Set!", f"{member.mention} is now **level {level}**.", BLUE))
+        await interaction.response.send_message(embed=cozy_embed(
+            "Level Set!", f"{member.mention} is now **level {level}**.", LAVENDER))
 
     @levelconfig.command(name="resetuser", description="Reset one member's XP")
     async def cfg_resetuser(self, interaction: discord.Interaction, member: discord.Member):
         self.guild(interaction.guild.id)["users"].pop(str(member.id), None)
         self.dirty = True
-        await interaction.response.send_message(embed=web_embed(
-            "XP Reset!", f"{member.mention}'s XP was wiped. 🕸️", DARK))
+        await interaction.response.send_message(embed=cozy_embed(
+            "XP Reset!", f"{member.mention}'s XP was wiped. ☁️", NIGHT))
 
     @levelconfig.command(name="reset", description="Wipe EVERYONE's XP (cannot be undone)")
     @app_commands.describe(confirm="Set to True to confirm")
@@ -411,7 +411,7 @@ class Leveling(commands.Cog):
             return await fail(interaction, "Set `confirm` to **True** if you really want to wipe everyone's XP.")
         self.guild(interaction.guild.id)["users"] = {}
         self.dirty = True
-        await interaction.response.send_message(embed=web_embed("Web Wiped!", "All XP in this server was reset.", DARK))
+        await interaction.response.send_message(embed=cozy_embed("XP Reset!", "All XP in this server was reset.", NIGHT))
 
     # ================================================================ ADMIN: REWARDS
     @levelreward.command(name="add", description="Give a role when members reach a level")
@@ -422,22 +422,22 @@ class Leveling(commands.Cog):
             return await fail(interaction, "That role is above mine. Move my role higher in Server Settings → Roles.")
         self.guild(interaction.guild.id)["rewards"][str(level)] = role.id
         self.dirty = True
-        await interaction.response.send_message(embed=web_embed(
-            "Reward Added!", f"Reaching **level {level}** now gives {role.mention}. 🎁", BLUE))
+        await interaction.response.send_message(embed=cozy_embed(
+            "Reward Added!", f"Reaching **level {level}** now gives {role.mention}. 🎁", LAVENDER))
 
     @levelreward.command(name="remove", description="Remove the reward for a level")
     async def reward_remove(self, interaction: discord.Interaction, level: app_commands.Range[int, 1, 500]):
         if self.guild(interaction.guild.id)["rewards"].pop(str(level), None) is None:
             return await fail(interaction, "There's no reward at that level.")
         self.dirty = True
-        await interaction.response.send_message(embed=web_embed("Reward Removed!", f"Removed the level **{level}** reward.", DARK))
+        await interaction.response.send_message(embed=cozy_embed("Reward Removed!", f"Removed the level **{level}** reward.", NIGHT))
 
     @levelreward.command(name="list", description="Show all level rewards")
     async def reward_list(self, interaction: discord.Interaction):
         rewards = self.guild(interaction.guild.id)["rewards"]
         lines = [f"**Level {l}** → <@&{r}>" for l, r in sorted(rewards.items(), key=lambda kv: int(kv[0]))]
         await interaction.response.send_message(
-            embed=web_embed("Level Rewards", "\n".join(lines) or "No rewards set. 🕸️", BLUE), ephemeral=True)
+            embed=cozy_embed("Level Rewards", "\n".join(lines) or "No rewards set. ☁️", LAVENDER), ephemeral=True)
 
 
 async def setup(bot: commands.Bot):

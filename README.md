@@ -1,4 +1,6 @@
-# 🕷️ Spidey Bot
+# 🌙 Hamsafar Bot
+
+*Hamsafar (همسفر) means "fellow traveler". A cozy, chill companion bot for a cozy, chill server.*
 
 ## Run it
 1. Install Python 3.10+ from python.org
@@ -8,6 +10,12 @@
 4. Set your bot token as the DISCORD_TOKEN environment variable
 5. Run:
    python bot.py
+
+## Make it look like Hamsafar
+- Bot avatar / server icon: use `assets/hamsafar_logo.png` (the sunset logo; `hamsafar_logo_moon_alt.png` is an alternate). Set it in Developer Portal > General Information > App Icon).
+- Bot name: set it to **Hamsafar** in the Developer Portal (Bot tab > Username).
+- The bot shows Discord's little crescent-moon "idle" status and "Listening to lofi beats ☕".
+- Colors and the embed footer live in `theme.py` (peach `#F2A47E`, lavender `#B8A9D9`, indigo `#4A3F6B`). Change them there and every embed follows.
 
 ## Discord Developer Portal checklist
 - Bot tab > turn ON "Server Members Intent" AND "Message Content Intent"
@@ -22,7 +30,8 @@
 
 ## Features
 - Help:         /help  (one dropdown menu with every category, updates itself)
-- VoiceMaster:  /voicemaster setup  (join-to-create rooms + control panel)
+- Basic:        /ping /fact /chai @user /avatar
+- VoiceMaster:  /voicemaster setup  (join-to-create cozy "nooks" + control panel)
 - Moderation:   (see /help)
   kick, ban, tempban, softban, unban, banlist, mute, unmute, warn, warnings,
   delwarn, clearwarnings, modlogs, case, setlogchannel, purge, slowmode, lock,
@@ -33,11 +42,14 @@
   serverinfo, whois, roleinfo, channelinfo, membercount, banner, servericon,
   emojis, roles, botinfo, uptime, invite, calc, choose, roll, color,
   timestamp, snowflake, password, base64, say, embed, poll, suggest,
-  setsuggestchannel, remind, reminders, delreminder, afk, todo, giveaway
+  setsuggestchannel, remind, reminders, delreminder, afk, todo, giveaway,
+  mail (send a cozy postcard to another member)
 
-- Economy:      /balance /daily /work /give /shop /buy /inventory /richest, /webs ..., /ecoadmin ...
+- Economy:      /balance /daily /work /give /shop /buy /inventory /richest, /stardust ..., /ecoadmin ...
+                The currency is **stardust ✨**. /stardust weekly|deposit|withdraw|rob|use
 - Casino:       /coinflip /slots /blackjack /mines, /casino hilo|roulette|dice|rps
 - Mini-games:   /guess (number guessing game, 1-100), /game trivia|daily|hangman|tictactoe|connect4|rps|catch
+                (trivia has Cozy Life and Night Sky categories; "catch" is a shooting-star reaction game)
 - Actions:      42 actions with GIFs: /hug /slap /punch /dance, plus every other one as its own command:
                 /interact kiss|pat|cuddle|poke|tickle|bite|kick|shoot|yeet|bonk|... @user
                 /react cry|laugh|wave|wink|blush|smile|smug|sleep|yawn|run|... [@user]
@@ -57,13 +69,14 @@ Use `/welcome test` after every change to preview exactly what new members will 
 - `/welcome channel #welcome`   where it is sent (nothing is sent until you set this)
 - `/welcome text ...`           text ABOVE the embed. `{user}` here pings the new member (empty = none)
 - `/welcome title ...`          embed title      |  `/welcome message ...` the embed text
-- `/welcome footer ...`         small text at the bottom (empty = Spidey default, `off` = none)
-- `/welcome color #00ff99`      color strip      |  `/welcome thumbnail`  avatar / server icon / custom / none
+- `/welcome footer ...`         small text at the bottom (empty = Hamsafar default, `off` = none)
+- `/welcome color #F2A47E`      color strip      |  `/welcome thumbnail`  avatar / server icon / custom / none
 - `/welcome image`              big picture at the bottom: give a https:// link or upload a file (PNG/JPG/GIF/WEBP, 8 MB)
 Placeholders that work in text, title, message and footer: `{user}` `{name}` `{server}` `{count}` (type `\n` for a new line).
 Uploaded pictures are saved in the `welcome_images` folder next to bot.py. `/welcome resetstyle` restores the default look.
 
 Data is saved in .json files next to bot.py (created automatically) plus the welcome_images folder.
+(Internally the economy still stores balances under the key `webs` so old data files keep working.)
 
 ## 🖥️ Web dashboard
 Log in with Discord and edit AutoMod, Welcome, Leveling, Moderation log, Tickets and Suggestions from a browser.

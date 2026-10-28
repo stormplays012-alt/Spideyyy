@@ -9,7 +9,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from theme import web_embed, RED, BLUE, DARK
+from theme import cozy_embed, PEACH, LAVENDER, NIGHT
 from moderation import fail
 
 DATA_FILE = "welcome.json"
@@ -19,17 +19,17 @@ DEFAULTS = {
     "welcome_enabled": True,
     "goodbye_enabled": True,
     "auto_roles_enabled": True,
-    "welcome_message": "{line}\n\nWelcome {user} to **{server}**! You're member **#{count}**. 🕷️",
+    "welcome_message": "{line}\n\nWelcome {user} to **{server}**! You're traveler **#{count}**. Grab a warm drink and settle in 🍵",
     "goodbye_channel": None,
-    "goodbye_message": "**{name}** swung out of the web. 🕸️ We're now **{count}** members.",
+    "goodbye_message": "**{name}** has continued their journey. 🌙 We're now **{count}** travelers.",
     "auto_roles": [],
     "min_age_days": 0,
     "verify_role": None,
     # ---- look of the welcome message (all editable with /welcome ...)
     "welcome_text": "",          # text ABOVE the embed, the only part that can ping the new member
-    "welcome_title": "New Arrival!",
-    "welcome_footer": None,      # None = Spidey's default footer, "__off__" = no footer, anything else = custom
-    "welcome_color": BLUE,
+    "welcome_title": "A New Traveler!",
+    "welcome_footer": None,      # None = Hamsafar's default footer, "__off__" = no footer, anything else = custom
+    "welcome_color": LAVENDER,
     "thumbnail_mode": "avatar",  # avatar | server | custom | none
     "thumbnail_url": None,
     "thumbnail_file": None,      # an uploaded picture (kept on disk)
@@ -43,9 +43,9 @@ IMAGE_TYPES = {"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "
 MAX_IMAGE_BYTES = 8 * 1024 * 1024
 
 LINES = [
-    "A new friend got caught in the web! 🕸️",
-    "My spider-sense was tingling… you've arrived! 🕷️",
-    "Welcome to the neighborhood, web-slinger! 🕷️",
+    "A new traveler just joined our campfire! 🔥",
+    "The kettle's on… you've finally arrived! 🍵",
+    "Welcome to the caravan, fellow traveler! 🌙",
 ]
 
 
@@ -79,7 +79,7 @@ def image_path(c: dict, kind: str) -> Optional[str]:
 def build_welcome(member: discord.Member, c: dict):
     """Returns (text above the embed or None, embed, [files to attach])."""
     content = render(c["welcome_text"], member)[:2000] if c["welcome_text"] else None
-    embed = web_embed(render(c["welcome_title"], member)[:256] or "Welcome!",
+    embed = cozy_embed(render(c["welcome_title"], member)[:256] or "Welcome!",
                       render(c["welcome_message"], member), c["welcome_color"])
     if c["welcome_footer"] == FOOTER_OFF:
         embed.remove_footer()
@@ -116,22 +116,22 @@ class VerifyView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
 
-    @discord.ui.button(label="Verify", emoji="🕸️", style=discord.ButtonStyle.success, custom_id="welcome:verify")
+    @discord.ui.button(label="Verify", emoji="🌿", style=discord.ButtonStyle.success, custom_id="welcome:verify")
     async def verify(self, interaction: discord.Interaction, button: discord.ui.Button):
         cog = interaction.client.get_cog("Welcome")
         role_id = cog.cfg(interaction.guild.id)["verify_role"] if cog else None
         role = interaction.guild.get_role(role_id) if role_id else None
         if role is None:
-            return await fail(interaction, "Verification isn't set up properly. Tell an admin. 🕷️")
+            return await fail(interaction, "Verification isn't set up properly. Tell an admin. 🌙")
         if role in interaction.user.roles:
             return await interaction.response.send_message(
-                embed=web_embed("Already Verified!", "You're already in the web. 🕸️", BLUE), ephemeral=True)
+                embed=cozy_embed("Already Verified!", "You're already part of the caravan. 🌙", LAVENDER), ephemeral=True)
         try:
-            await interaction.user.add_roles(role, reason="Passed Spidey verification")
+            await interaction.user.add_roles(role, reason="Passed Hamsafar verification")
         except discord.HTTPException:
-            return await fail(interaction, "I couldn't give you the role. Tell an admin to move my role higher. 🕷️")
+            return await fail(interaction, "I couldn't give you the role. Tell an admin to move my role higher. 🌙")
         await interaction.response.send_message(
-            embed=web_embed("Verified!", f"Welcome in! You now have {role.mention}. 🕸️", BLUE), ephemeral=True)
+            embed=cozy_embed("Verified!", f"Welcome in! You now have {role.mention}. ☁️", LAVENDER), ephemeral=True)
 
 
 # ------------------------------------------------------------------ cog
@@ -145,7 +145,7 @@ def summary_embed(c: dict, notes: Optional[list] = None) -> discord.Embed:
     roles = ", ".join(f"<@&{i}>" for i in c["auto_roles"]) or "none"
     age = f"{c['min_age_days']} days" if c["min_age_days"] else "off"
     verify = f"<@&{c['verify_role']}>" if c["verify_role"] else "not set up"
-    footer = {None: "Spidey default", FOOTER_OFF: "off"}.get(c["welcome_footer"], c["welcome_footer"])
+    footer = {None: "Hamsafar default", FOOTER_OFF: "off"}.get(c["welcome_footer"], c["welcome_footer"])
     thumb = c["thumbnail_mode"]
     if thumb == "custom":
         thumb += " (uploaded picture)" if image_path(c, "thumbnail") else " (link)" if c["thumbnail_url"] else " (nothing set yet)"
@@ -168,7 +168,7 @@ def summary_embed(c: dict, notes: Optional[list] = None) -> discord.Embed:
         "",
         "Press the buttons below to change things. Placeholders: `{user}` `{name}` `{server}` `{count}`",
     ]
-    return web_embed("Welcome Panel", "\n".join(lines)[:4000], BLUE)
+    return cozy_embed("Welcome Panel", "\n".join(lines)[:4000], LAVENDER)
 
 
 class OwnedView(discord.ui.View):
@@ -185,7 +185,7 @@ class OwnedView(discord.ui.View):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.owner_id or not interaction.user.guild_permissions.manage_guild:
-            await interaction.response.send_message("This panel isn't yours. Run `/welcome` to open your own. 🕷️", ephemeral=True)
+            await interaction.response.send_message("This panel isn't yours. Run `/welcome` to open your own. 🌙", ephemeral=True)
             return False
         return True
 
@@ -254,7 +254,7 @@ class LookModal(discord.ui.Modal, title="Look of the welcome message"):
         footer = "off" if c["welcome_footer"] == FOOTER_OFF else (c["welcome_footer"] or "")
         self.title_in = _field("Title", c["welcome_title"], max_length=200)
         self.footer = _field("Footer (empty = default, off = none)", footer, required=False, max_length=500)
-        self.color = _field("Color (hex, like #E62429)", f"#{c['welcome_color']:06X}", required=False, max_length=7)
+        self.color = _field("Color (hex, like #F2A47E)", f"#{c['welcome_color']:06X}", required=False, max_length=7)
         for item in (self.title_in, self.footer, self.color):
             self.add_item(item)
 
@@ -267,7 +267,7 @@ class LookModal(discord.ui.Modal, title="Look of the welcome message"):
         if color:
             value = parse_hex(color)
             if value is None:
-                notes.append("The color wasn't changed: use a 6-digit hex like #E62429.")
+                notes.append("The color wasn't changed: use a 6-digit hex like #F2A47E.")
             else:
                 c["welcome_color"] = value
         self.panel.cog.save()
@@ -394,7 +394,7 @@ class PicturesView(OwnedView):
             "Pick the thumbnail type in the dropdown. Use the buttons to paste a picture link.",
             "💡 To **upload** a picture file instead, run `/welcome` and fill in the `image` or `thumbnail` option.",
         ]
-        return web_embed("Welcome Pictures", "\n".join(lines), BLUE)
+        return cozy_embed("Welcome Pictures", "\n".join(lines), LAVENDER)
 
     async def refresh(self, interaction, notes=None):
         self.stop()
@@ -451,7 +451,7 @@ class ChannelsView(OwnedView):
             "",
             "Pick a channel from each dropdown. Use the red buttons to turn a message off.",
         ]
-        return web_embed("Welcome Channels", "\n".join(lines), BLUE)
+        return cozy_embed("Welcome Channels", "\n".join(lines), LAVENDER)
 
     def _make_callback(self, select, key):
         async def callback(interaction: discord.Interaction):
@@ -501,7 +501,7 @@ class AutoRolesView(OwnedView):
         lines = [f"⚠️ {n}" for n in (notes or [])] + ([""] if notes else []) + [
             f"🎭 **Auto-roles:** {roles}", "",
             "New members get these roles the moment they join. My role must be above them in Server Settings → Roles."]
-        return web_embed("Welcome Auto-Roles", "\n".join(lines), BLUE)
+        return cozy_embed("Welcome Auto-Roles", "\n".join(lines), LAVENDER)
 
     async def on_pick(self, interaction: discord.Interaction):
         good, notes = [], []
@@ -544,7 +544,7 @@ class VerifySetupView(OwnedView):
             f"Role chosen: {chosen_role}", f"Channel chosen: {chosen_chan}", "",
             "Pick a role and a channel, then press **Post Verify button**. Hide your other channels from @everyone "
             "and show them to this role, so members must verify first."]
-        return web_embed("Verification Button", "\n".join(lines), BLUE)
+        return cozy_embed("Verification Button", "\n".join(lines), LAVENDER)
 
     def _update(self):
         self.post_btn.disabled = not (self.role and self.channel)
@@ -570,7 +570,7 @@ class VerifySetupView(OwnedView):
         if role.is_default() or role.managed or role >= self.guild.me.top_role:
             return await self._note(interaction, f"I can't hand out {role.mention} (managed, @everyone, or above my role).")
         try:
-            await channel.send(embed=web_embed("Verification", "Press the button below to verify and unlock the server. 🕸️", RED),
+            await channel.send(embed=cozy_embed("Verification", "Press the button below to verify and unlock the server. ☁️", PEACH),
                                view=VerifyView())
         except discord.HTTPException:
             return await self._note(interaction, f"I can't post in {channel.mention}. Check my permissions there.")
@@ -584,8 +584,8 @@ class VerifySetupView(OwnedView):
 
 class ConfirmResetView(OwnedView):
     def embed(self):
-        return web_embed("Reset the Look?", "This restores the default text, title, footer, color, thumbnail and image, "
-                                            "and deletes uploaded pictures. Your messages, channels and roles stay.", DARK)
+        return cozy_embed("Reset the Look?", "This restores the default text, title, footer, color, thumbnail and image, "
+                                            "and deletes uploaded pictures. Your messages, channels and roles stay.", NIGHT)
 
     @discord.ui.button(label="Yes, reset it", emoji="♻️", style=discord.ButtonStyle.danger)
     async def yes(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -638,13 +638,13 @@ class Welcome(commands.Cog):
             if age < c["min_age_days"]:
                 reason = f"Account is {age} day(s) old; this server requires {c['min_age_days']}+"
                 try:
-                    await member.send(embed=web_embed(
+                    await member.send(embed=cozy_embed(
                         "Account Too New", f"**{member.guild.name}** only allows accounts older than "
-                                           f"**{c['min_age_days']}** days. Come back later! 🕸️", DARK))
+                                           f"**{c['min_age_days']}** days. Come back later! ☁️", NIGHT))
                 except discord.HTTPException:
                     pass
                 try:
-                    await member.kick(reason=f"Spidey anti-raid: {reason}")
+                    await member.kick(reason=f"Hamsafar anti-raid: {reason}")
                 except discord.HTTPException:
                     return
                 mod = self.bot.get_cog("Moderation")
@@ -657,7 +657,7 @@ class Welcome(commands.Cog):
                  if r and not r.managed and r < member.guild.me.top_role] if c.get("auto_roles_enabled", True) else []
         if roles:
             try:
-                await member.add_roles(*roles, reason="Spidey auto-role")
+                await member.add_roles(*roles, reason="Hamsafar auto-role")
             except discord.HTTPException:
                 pass
 
@@ -679,7 +679,7 @@ class Welcome(commands.Cog):
         channel = member.guild.get_channel(c["goodbye_channel"]) if c.get("goodbye_enabled", True) and c["goodbye_channel"] else None
         if channel:
             try:
-                await channel.send(embed=web_embed("Goodbye!", render(c["goodbye_message"], member), DARK))
+                await channel.send(embed=cozy_embed("Goodbye!", render(c["goodbye_message"], member), NIGHT))
             except discord.HTTPException:
                 pass
 

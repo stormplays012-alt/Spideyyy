@@ -7,12 +7,12 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from theme import web_embed, RED, BLUE, DARK
+from theme import cozy_embed, PEACH, LAVENDER, NIGHT
 
 DATA_FILE = "voicemaster.json"
 
 DEFAULT_STATE = {
-    "name": "",        # empty = use "<member>'s Web"
+    "name": "",        # empty = use "<member>'s Nook"
     "limit": 0,        # 0 = unlimited
     "status": "",
     "locked": False,
@@ -78,8 +78,8 @@ class Store:
 
 
 # ------------------------------------------------------------------ helpers
-async def _reply(interaction: discord.Interaction, title: str, text: str, color: int = RED):
-    embed = web_embed(title, text, color)
+async def _reply(interaction: discord.Interaction, title: str, text: str, color: int = PEACH):
+    embed = cozy_embed(title, text, color)
     if interaction.response.is_done():
         await interaction.followup.send(embed=embed, ephemeral=True)
     else:
@@ -125,25 +125,25 @@ def build_overwrites(guild: discord.Guild, owner: discord.Member, state: dict):
 
 def panel_embed(owner: discord.Member) -> discord.Embed:
     desc = (
-        f"Welcome to your web, {owner.mention}! 🕷️\n"
+        f"Welcome to your nook, {owner.mention}! 🕯️\n"
         "Only the **owner** can use these controls.\n\n"
-        "🕸️ **Rename** • change the room name\n"
+        "📝 **Rename** • change the room name\n"
         "👥 **Limit** • set max members (0 = unlimited)\n"
-        "🕸️ **Status** • set the voice channel status\n"
-        "🔒 **Lock** • lock/unlock the web for everyone\n"
+        "🎙️ **Status** • set the voice channel status\n"
+        "🔒 **Lock** • lock/unlock the nook for everyone\n"
         "👻 **Hide** • hide/show the room\n"
         "✅ **Permit** • let someone in (even if locked/hidden)\n"
-        "🚫 **Reject** • block someone from the web\n"
+        "🚫 **Reject** • keep someone out of the nook\n"
         "🥾 **Kick** • remove someone from the room\n"
         "👑 **Transfer** • hand over ownership\n"
-        "🕷️ **Claim** • take over if the owner left\n"
+        "🌙 **Claim** • take over if the owner left\n"
         "ℹ️ **Info** • view current settings"
     )
-    return web_embed("Web Control Panel", desc, BLUE)
+    return cozy_embed("Nook Control Panel", desc, LAVENDER)
 
 
 # ------------------------------------------------------------------ modals
-class RenameModal(discord.ui.Modal, title="Rename your web 🕸️"):
+class RenameModal(discord.ui.Modal, title="Rename your nook 🌿"):
     new_name = discord.ui.TextInput(label="New room name", min_length=1, max_length=100)
 
     def __init__(self, cog, channel_id):
@@ -154,7 +154,7 @@ class RenameModal(discord.ui.Modal, title="Rename your web 🕸️"):
         await self.cog.set_name(interaction, self.channel_id, str(self.new_name).strip())
 
 
-class LimitModal(discord.ui.Modal, title="Set member limit 🕷️"):
+class LimitModal(discord.ui.Modal, title="Set member limit 🌙"):
     amount = discord.ui.TextInput(label="Limit (0 = unlimited, max 99)", min_length=1, max_length=2)
 
     def __init__(self, cog, channel_id):
@@ -165,7 +165,7 @@ class LimitModal(discord.ui.Modal, title="Set member limit 🕷️"):
         await self.cog.set_limit(interaction, self.channel_id, str(self.amount).strip())
 
 
-class StatusModal(discord.ui.Modal, title="Set room status 🕸️"):
+class StatusModal(discord.ui.Modal, title="Set room status ☁️"):
     text = discord.ui.TextInput(label="Status (leave empty to clear)", required=False, max_length=500)
 
     def __init__(self, cog, channel_id):
@@ -193,7 +193,7 @@ class PickView(discord.ui.View):
     async def picked(self, interaction: discord.Interaction):
         member = interaction.guild.get_member(self.select.values[0].id)
         if member is None:
-            return await _reply(interaction, "Web Snagged!", "I can't find that member.", DARK)
+            return await _reply(interaction, "Oops, a Little Bump!", "I can't find that member.", NIGHT)
         self.stop()
         await self.handler(interaction, self.channel_id, member)
 
@@ -215,8 +215,8 @@ class ControlPanel(discord.ui.View):
 
         if room is None:
             await _reply(
-                interaction, "Dead Web",
-                "This isn't an active VoiceMaster room.", DARK
+                interaction, "Empty Nook",
+                "This isn't an active VoiceMaster room.", NIGHT
             )
             return False
 
@@ -227,7 +227,7 @@ class ControlPanel(discord.ui.View):
         return True
 
     @discord.ui.select(
-        placeholder="🕷️ Choose a VoiceMaster action...",
+        placeholder="🌙 Choose a VoiceMaster action...",
         custom_id="vm:menu",
         min_values=1,
         max_values=1,
@@ -250,7 +250,7 @@ class ControlPanel(discord.ui.View):
                                  value="kick"),
             discord.SelectOption(label="Transfer Ownership", emoji="👑",
                                  value="transfer"),
-            discord.SelectOption(label="Claim Room", emoji="🕷️",
+            discord.SelectOption(label="Claim Room", emoji="🌙",
                                  value="claim"),
             discord.SelectOption(label="Room Information", emoji="ℹ️",
                                  value="info"),
@@ -268,8 +268,8 @@ class ControlPanel(discord.ui.View):
 
         if room is None:
             return await _reply(
-                interaction, "Dead Web",
-                "This room isn't active.", DARK
+                interaction, "Empty Nook",
+                "This room isn't active.", NIGHT
             )
 
         action = select.values[0]
@@ -281,9 +281,9 @@ class ControlPanel(discord.ui.View):
         # All other actions require the current owner.
         if room["owner"] != interaction.user.id:
             return await _reply(
-                interaction, "Hands off my web!",
-                "Only the room owner can use this control. 🕷️",
-                DARK,
+                interaction, "Not Your Nook!",
+                "Only the room owner can use this control. 🌙",
+                NIGHT,
             )
 
         # Modals must be opened as the initial interaction response.
@@ -322,10 +322,10 @@ class ControlPanel(discord.ui.View):
         if action in handlers:
             handler, placeholder = handlers[action]
             return await interaction.response.send_message(
-                embed=web_embed(
+                embed=cozy_embed(
                     "Pick a Member",
-                    "Choose someone from the dropdown below. 🕸️",
-                    DARK,
+                    "Choose someone from the dropdown below. ☁️",
+                    NIGHT,
                 ),
                 view=PickView(
                     handler, channel_id,
@@ -337,7 +337,7 @@ class ControlPanel(discord.ui.View):
 class VoiceMaster(commands.Cog):
     voicemaster = app_commands.Group(
         name="voicemaster",
-        description="Spidey VoiceMaster setup",
+        description="Hamsafar VoiceMaster setup",
         guild_only=True,
         default_permissions=discord.Permissions(administrator=True),
     )
@@ -362,43 +362,43 @@ class VoiceMaster(commands.Cog):
             old_ch = guild.get_channel(old["creator_id"])
             if old_ch:
                 try:
-                    await old_ch.delete(reason="Spidey VoiceMaster re-setup")
+                    await old_ch.delete(reason="Hamsafar VoiceMaster re-setup")
                 except discord.HTTPException:
                     pass
         try:
             creator = await guild.create_voice_channel(
-                "🕸️ Join to Create", category=category, user_limit=1,
-                reason="Spidey VoiceMaster setup",
+                "✨ Join to Create", category=category, user_limit=1,
+                reason="Hamsafar VoiceMaster setup",
             )
         except discord.Forbidden:
             return await interaction.followup.send(
-                embed=web_embed("Web Tangled!",
+                embed=cozy_embed("Hmm, That Didn't Work",
                                 "I need **Manage Channels**, **Move Members** and **Connect** "
-                                "permissions in that category.", DARK),
+                                "permissions in that category.", NIGHT),
                 ephemeral=True,
             )
 
         self.store.set_guild(guild.id, category.id, creator.id)
-        await interaction.followup.send(embed=web_embed(
+        await interaction.followup.send(embed=cozy_embed(
             "VoiceMaster Configured!",
-            f"VoiceMaster is now configured in **{category.name}** 🕸️\n\n"
-            f"Join {creator.mention} (limit 1) and I'll spin a private web just for you, "
-            "move you into it, and drop a control panel in its chat. 🕷️",
+            f"VoiceMaster is now configured in **{category.name}** ☁️\n\n"
+            f"Join {creator.mention} (limit 1) and I'll set up a cozy private nook just for you, "
+            "move you into it, and drop a control panel in its chat. 🌙",
         ))
 
     @voicemaster.command(name="disable", description="Turn off VoiceMaster in this server")
     async def disable(self, interaction: discord.Interaction):
         cfg = self.store.get_guild(interaction.guild.id)
         if not cfg:
-            return await _reply(interaction, "Nothing to Remove", "VoiceMaster isn't set up here.", DARK)
+            return await _reply(interaction, "Nothing to Remove", "VoiceMaster isn't set up here.", NIGHT)
         ch = interaction.guild.get_channel(cfg["creator_id"])
         if ch:
             try:
-                await ch.delete(reason="Spidey VoiceMaster disabled")
+                await ch.delete(reason="Hamsafar VoiceMaster disabled")
             except discord.HTTPException:
                 pass
         self.store.remove_guild(interaction.guild.id)
-        await _reply(interaction, "Web Cut!", "VoiceMaster is disabled. Existing rooms vanish when empty. 🕸️")
+        await _reply(interaction, "Nook Closed!", "VoiceMaster is disabled. Existing rooms vanish when empty. 🌙")
 
     # ---------- listeners
     @commands.Cog.listener()
@@ -445,14 +445,14 @@ class VoiceMaster(commands.Cog):
         guild = member.guild
         state = self.store.get_profile(guild.id, member.id)  # their saved settings
         category = guild.get_channel(cfg["category_id"])
-        name = (state["name"] or f"🕷️ {member.display_name}'s Web")[:100]
+        name = (state["name"] or f"🕯️ {member.display_name}'s Nook")[:100]
 
         channel = await guild.create_voice_channel(
             name=name,
             category=category if isinstance(category, discord.CategoryChannel) else None,
             user_limit=state["limit"],
             overwrites=build_overwrites(guild, member, state),
-            reason=f"Spidey VoiceMaster room for {member}",
+            reason=f"Hamsafar VoiceMaster room for {member}",
         )
         self.store.add_room(channel.id, guild.id, member.id, state)
 
@@ -469,7 +469,7 @@ class VoiceMaster(commands.Cog):
     async def delete_room(self, channel):
         self.store.remove_room(channel.id)
         try:
-            await channel.delete(reason="Spidey VoiceMaster: room is empty")
+            await channel.delete(reason="Hamsafar VoiceMaster: room is empty")
         except discord.HTTPException:
             pass
 
@@ -486,7 +486,7 @@ class VoiceMaster(commands.Cog):
         self.store.save_profile(room["guild"], room["owner"], room["state"])
 
     async def _not_owner(self, interaction):
-        await _reply(interaction, "Hands off my web!", "Only the room owner can do that. 🕷️", DARK)
+        await _reply(interaction, "Not Your Nook!", "Only the room owner can do that. 🌙", NIGHT)
 
     # ---------- actions
     async def set_name(self, interaction, channel_id, name):
@@ -496,10 +496,10 @@ class VoiceMaster(commands.Cog):
             return await self._not_owner(interaction)
         err = await safe_edit(channel, name=name)
         if err:
-            return await _reply(interaction, "Web Snagged!", err, DARK)
+            return await _reply(interaction, "Oops, a Little Bump!", err, NIGHT)
         room["state"]["name"] = name
         self._commit(room)
-        await _reply(interaction, "Web Renamed!", f"Your room is now **{name}** 🕷️")
+        await _reply(interaction, "Nook Renamed!", f"Your room is now **{name}** 🌙")
 
     async def set_limit(self, interaction, channel_id, raw):
         await interaction.response.defer(ephemeral=True)
@@ -507,15 +507,15 @@ class VoiceMaster(commands.Cog):
         if not room:
             return await self._not_owner(interaction)
         if not raw.isdigit() or not 0 <= int(raw) <= 99:
-            return await _reply(interaction, "Web Snagged!", "Enter a number from 0 to 99.", DARK)
+            return await _reply(interaction, "Oops, a Little Bump!", "Enter a number from 0 to 99.", NIGHT)
         amount = int(raw)
         err = await safe_edit(channel, user_limit=amount)
         if err:
-            return await _reply(interaction, "Web Snagged!", err, DARK)
+            return await _reply(interaction, "Oops, a Little Bump!", err, NIGHT)
         room["state"]["limit"] = amount
         self._commit(room)
         await _reply(interaction, "Limit Set!",
-                     f"Capacity is now **{amount if amount else 'unlimited'}** 🕸️")
+                     f"Capacity is now **{amount if amount else 'unlimited'}** ☁️")
 
     async def set_status(self, interaction, channel_id, text):
         await interaction.response.defer(ephemeral=True)
@@ -524,10 +524,10 @@ class VoiceMaster(commands.Cog):
             return await self._not_owner(interaction)
         err = await safe_edit(channel, status=text or None)
         if err:
-            return await _reply(interaction, "Web Snagged!", err, DARK)
+            return await _reply(interaction, "Oops, a Little Bump!", err, NIGHT)
         room["state"]["status"] = text
         self._commit(room)
-        await _reply(interaction, "Status Updated!", f"Status: **{text}**" if text else "Status cleared. 🕸️")
+        await _reply(interaction, "Status Updated!", f"Status: **{text}**" if text else "Status cleared. ☁️")
 
     async def toggle_lock(self, interaction, channel_id):
         await interaction.response.defer(ephemeral=True)
@@ -539,11 +539,11 @@ class VoiceMaster(commands.Cog):
             await channel.set_permissions(interaction.guild.default_role,
                                           connect=False if locked else None)
         except discord.HTTPException as e:
-            return await _reply(interaction, "Web Snagged!", e.text, DARK)
+            return await _reply(interaction, "Oops, a Little Bump!", e.text, NIGHT)
         room["state"]["locked"] = locked
         self._commit(room)
-        await _reply(interaction, "Web Locked!" if locked else "Web Unlocked!",
-                     "Nobody new can join unless permitted. 🔒" if locked else "Anyone can swing in again. 🕸️")
+        await _reply(interaction, "Nook Locked!" if locked else "Nook Unlocked!",
+                     "Nobody new can join unless permitted. 🔒" if locked else "Anyone can drop in again. 🌿")
 
     async def toggle_hide(self, interaction, channel_id):
         await interaction.response.defer(ephemeral=True)
@@ -555,12 +555,12 @@ class VoiceMaster(commands.Cog):
             await channel.set_permissions(interaction.guild.default_role,
                                           view_channel=False if hidden else None)
         except discord.HTTPException as e:
-            return await _reply(interaction, "Web Snagged!", e.text, DARK)
+            return await _reply(interaction, "Oops, a Little Bump!", e.text, NIGHT)
         room["state"]["hidden"] = hidden
         self._commit(room)
-        await _reply(interaction, "Web Hidden!" if hidden else "Web Visible!",
+        await _reply(interaction, "Nook Hidden!" if hidden else "Nook Visible!",
                      "Only you and permitted members can see this room. 👻" if hidden
-                     else "Everyone can see the room again. 🕸️")
+                     else "Everyone can see the room again. ☁️")
 
     async def permit(self, interaction, channel_id, target: discord.Member):
         await interaction.response.defer(ephemeral=True)
@@ -568,7 +568,7 @@ class VoiceMaster(commands.Cog):
         if not room:
             return await self._not_owner(interaction)
         if target.id == room["owner"] or target.id == self.bot.user.id:
-            return await _reply(interaction, "Web Snagged!", "Pick someone else. 🕷️", DARK)
+            return await _reply(interaction, "Oops, a Little Bump!", "Pick someone else. 🌙", NIGHT)
         st = room["state"]
         try:
             if target.id in st["permitted"]:
@@ -580,9 +580,9 @@ class VoiceMaster(commands.Cog):
                 st["permitted"].append(target.id)
                 if target.id in st["rejected"]:
                     st["rejected"].remove(target.id)
-                msg = f"{target.mention} can always swing into your web. ✅"
+                msg = f"{target.mention} can always drop into your nook. ✅"
         except discord.HTTPException as e:
-            return await _reply(interaction, "Web Snagged!", e.text, DARK)
+            return await _reply(interaction, "Oops, a Little Bump!", e.text, NIGHT)
         self._commit(room)
         await _reply(interaction, "Guest List Updated!", msg)
 
@@ -592,7 +592,7 @@ class VoiceMaster(commands.Cog):
         if not room:
             return await self._not_owner(interaction)
         if target.id == room["owner"] or target.id == self.bot.user.id:
-            return await _reply(interaction, "Web Snagged!", "Pick someone else. 🕷️", DARK)
+            return await _reply(interaction, "Oops, a Little Bump!", "Pick someone else. 🌙", NIGHT)
         st = room["state"]
         try:
             if target.id in st["rejected"]:
@@ -606,9 +606,9 @@ class VoiceMaster(commands.Cog):
                     st["permitted"].remove(target.id)
                 if target.voice and target.voice.channel and target.voice.channel.id == channel.id:
                     await target.move_to(None)
-                msg = f"{target.mention} is stuck outside the web. 🚫"
+                msg = f"{target.mention} is waiting outside the nook. 🚫"
         except discord.HTTPException as e:
-            return await _reply(interaction, "Web Snagged!", e.text, DARK)
+            return await _reply(interaction, "Oops, a Little Bump!", e.text, NIGHT)
         self._commit(room)
         await _reply(interaction, "Block List Updated!", msg)
 
@@ -618,14 +618,14 @@ class VoiceMaster(commands.Cog):
         if not room:
             return await self._not_owner(interaction)
         if target.id == room["owner"]:
-            return await _reply(interaction, "Web Snagged!", "You can't kick yourself. 🕷️", DARK)
+            return await _reply(interaction, "Oops, a Little Bump!", "You can't kick yourself. 🌙", NIGHT)
         if not (target.voice and target.voice.channel and target.voice.channel.id == channel.id):
-            return await _reply(interaction, "Web Snagged!", "That member isn't in your room.", DARK)
+            return await _reply(interaction, "Oops, a Little Bump!", "That member isn't in your room.", NIGHT)
         try:
             await target.move_to(None)
         except discord.HTTPException as e:
-            return await _reply(interaction, "Web Snagged!", e.text, DARK)
-        await _reply(interaction, "Yeeted!", f"{target.mention} was swung out of the web. 🥾")
+            return await _reply(interaction, "Oops, a Little Bump!", e.text, NIGHT)
+        await _reply(interaction, "Waved Off!", f"{target.mention} was gently shown the door. 🚪")
 
     async def _do_transfer(self, interaction, room, channel, new_owner: discord.Member):
         old_id = room["owner"]
@@ -638,8 +638,8 @@ class VoiceMaster(commands.Cog):
         await channel.set_permissions(new_owner, connect=True, view_channel=True)
         room["owner"] = new_owner.id
         self._commit(room)
-        await channel.send(embed=web_embed(
-            "New Web Master!", f"{new_owner.mention} now owns this web. 👑🕷️", BLUE))
+        await channel.send(embed=cozy_embed(
+            "New Nook Keeper!", f"{new_owner.mention} now owns this nook. 👑🌙", LAVENDER))
 
     async def transfer(self, interaction, channel_id, target: discord.Member):
         await interaction.response.defer(ephemeral=True)
@@ -647,13 +647,13 @@ class VoiceMaster(commands.Cog):
         if not room:
             return await self._not_owner(interaction)
         if target.id == room["owner"] or target.bot:
-            return await _reply(interaction, "Web Snagged!", "Pick a different (human) member.", DARK)
+            return await _reply(interaction, "Oops, a Little Bump!", "Pick a different (human) member.", NIGHT)
         if target not in channel.members:
-            return await _reply(interaction, "Web Snagged!", "They need to be in the room first.", DARK)
+            return await _reply(interaction, "Oops, a Little Bump!", "They need to be in the room first.", NIGHT)
         try:
             await self._do_transfer(interaction, room, channel, target)
         except discord.HTTPException as e:
-            return await _reply(interaction, "Web Snagged!", e.text, DARK)
+            return await _reply(interaction, "Oops, a Little Bump!", e.text, NIGHT)
         await _reply(interaction, "Ownership Transferred!", f"{target.mention} is the new owner. 👑")
 
     async def claim(self, interaction, channel_id):
@@ -661,22 +661,22 @@ class VoiceMaster(commands.Cog):
         room = self.store.get_room(channel_id)
         channel = interaction.guild.get_channel(channel_id)
         if not room or channel is None:
-            return await _reply(interaction, "Dead Web", "This room isn't active.", DARK)
+            return await _reply(interaction, "Empty Nook", "This room isn't active.", NIGHT)
         if interaction.user not in channel.members:
-            return await _reply(interaction, "Web Snagged!", "Join the room first. 🕷️", DARK)
+            return await _reply(interaction, "Oops, a Little Bump!", "Join the room first. 🌙", NIGHT)
         owner = interaction.guild.get_member(room["owner"])
         if owner is not None and owner in channel.members:
-            return await _reply(interaction, "Web Snagged!", "The owner is still here! 🕸️", DARK)
+            return await _reply(interaction, "Oops, a Little Bump!", "The owner is still here! ☁️", NIGHT)
         try:
             await self._do_transfer(interaction, room, channel, interaction.user)
         except discord.HTTPException as e:
-            return await _reply(interaction, "Web Snagged!", e.text, DARK)
-        await _reply(interaction, "Web Claimed!", "You're the new owner now. 👑")
+            return await _reply(interaction, "Oops, a Little Bump!", e.text, NIGHT)
+        await _reply(interaction, "Nook Claimed!", "You're the new owner now. 👑")
 
     async def info(self, interaction, channel_id):
         room = self.store.get_room(channel_id)
         if not room:
-            return await _reply(interaction, "Dead Web", "This room isn't active.", DARK)
+            return await _reply(interaction, "Empty Nook", "This room isn't active.", NIGHT)
         st = room["state"]
         fmt = lambda ids: ", ".join(f"<@{i}>" for i in ids) or "nobody"
         desc = (
@@ -688,7 +688,7 @@ class VoiceMaster(commands.Cog):
             f"✅ **Permitted:** {fmt(st['permitted'])}\n"
             f"🚫 **Rejected:** {fmt(st['rejected'])}"
         )
-        await _reply(interaction, "Web Info", desc, BLUE)
+        await _reply(interaction, "Nook Info", desc, LAVENDER)
 
 
 async def setup(bot: commands.Bot):

@@ -2,17 +2,17 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from theme import web_embed, RED, BLUE, DARK
+from theme import cozy_embed, PEACH, LAVENDER, NIGHT
 
 # cog class name -> (emoji, label, short blurb). Order here = order in the dropdown.
 # Cogs that aren't listed still show up automatically as "✨ <CogName>".
 CATEGORIES = {
-    "Basic":       ("🕸️", "Basic", "Fun starter commands"),
+    "Basic":       ("☁️", "Basic", "Cozy starter commands"),
     "Moderation":  ("🛡️", "Moderation", "Kick, ban, mute, warn, purge and more"),
     "AutoMod":     ("🤖", "AutoMod", "Automatic spam, link and word protection"),
     "Utility":     ("🧰", "Utility", "Info, tools, polls, reminders, giveaways"),
-    "Economy":     ("💰", "Economy", "Webs, daily, give, shop, rob"),
-    "Casino":      ("🎰", "Casino", "Bet webs: slots, mines, blackjack, more"),
+    "Economy":     ("💰", "Economy", "Stardust, daily, give, shop, rob"),
+    "Casino":      ("🎰", "Casino", "Bet stardust: slots, mines, blackjack, more"),
     "Actions":     ("🤗", "Actions", "Hug, slap, punch, dance and 40+ more with GIFs"),
     "MiniGames":   ("🎲", "Mini-games", "Guess, trivia, hangman, tic-tac-toe, connect four"),
     "VoiceMaster": ("🎙️", "VoiceMaster", "Join-to-create voice rooms"),
@@ -74,7 +74,7 @@ class HelpView(discord.ui.View):
             options.append(discord.SelectOption(
                 label=label, emoji=emoji, value=key,
                 description=f"{len(cmds)} command{'s' if len(cmds) != 1 else ''}"))
-        self.select = discord.ui.Select(placeholder="🕷️ Choose a category...", options=options[:25])
+        self.select = discord.ui.Select(placeholder="🌙 Choose a category...", options=options[:25])
         self.select.callback = self.on_select
         self.add_item(self.select)
 
@@ -85,10 +85,10 @@ class HelpView(discord.ui.View):
         for key, cmds in self.data.items():
             emoji, label, blurb = meta(key)
             lines.append(f"{emoji} **{label}** — {blurb} (`{len(cmds)}`)")
-        desc = (f"Welcome to Spidey's Web Guide! 🕷️\n"
+        desc = (f"Welcome to the Hamsafar Guide! 🌙\n"
                 f"I have **{total}** commands. Pick a category from the dropdown below.\n\n"
                 + "\n".join(lines))
-        return web_embed("Spidey's Web Guide", desc, RED)
+        return cozy_embed("The Hamsafar Guide", desc, PEACH)
 
     def category_embed(self, key: str) -> discord.Embed:
         emoji, label, blurb = meta(key)
@@ -110,17 +110,17 @@ class HelpView(discord.ui.View):
         if current:
             chunks.append(current)
 
-        embed = web_embed(f"{emoji} {label}", blurb, BLUE)
+        embed = cozy_embed(f"{emoji} {label}", blurb, LAVENDER)
         for i, chunk in enumerate(chunks, 1):
             embed.add_field(name="Commands" if len(chunks) == 1 else f"Commands ({i}/{len(chunks)})",
                             value=chunk, inline=False)
-        embed.set_footer(text="🔒 needs special permissions • 🕸️ Spidey")
+        embed.set_footer(text="🔒 needs special permissions • 🌙 Hamsafar")
         return embed
 
     # ---------- interaction
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.author_id:
-            await interaction.response.send_message("Run `/help` yourself to browse. 🕷️", ephemeral=True)
+            await interaction.response.send_message("Run `/help` yourself to browse. 🌙", ephemeral=True)
             return False
         return True
 
@@ -142,7 +142,7 @@ class Help(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="help", description="Browse everything Spidey can do")
+    @app_commands.command(name="help", description="Browse everything Hamsafar can do")
     async def help(self, interaction: discord.Interaction):
         view = HelpView(self.bot, interaction.user.id)
         await interaction.response.send_message(embed=view.home_embed(), view=view, ephemeral=True)

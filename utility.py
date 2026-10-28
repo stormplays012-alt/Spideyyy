@@ -17,7 +17,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from theme import web_embed, RED, BLUE, DARK
+from theme import cozy_embed, PEACH, LAVENDER, NIGHT
 from moderation import parse_duration, fmt_duration, fail
 
 DATA_FILE = "utility.json"
@@ -101,7 +101,7 @@ class Utility(commands.Cog):
     async def serverinfo(self, interaction: discord.Interaction):
         g = interaction.guild
         bots = sum(1 for m in g.members if m.bot)
-        embed = web_embed(g.name, g.description or "", BLUE)
+        embed = cozy_embed(g.name, g.description or "", LAVENDER)
         embed.add_field(name="ID", value=f"`{g.id}`")
         embed.add_field(name="Owner", value=f"<@{g.owner_id}>")
         embed.add_field(name="Created", value=discord.utils.format_dt(g.created_at, "R"))
@@ -121,7 +121,7 @@ class Utility(commands.Cog):
     async def whois(self, interaction: discord.Interaction, member: Optional[discord.Member] = None):
         member = member or interaction.user
         roles = ", ".join(r.mention for r in reversed(member.roles[1:])) or "none"
-        embed = web_embed(str(member), color=member.color.value or BLUE)
+        embed = cozy_embed(str(member), color=member.color.value or LAVENDER)
         embed.add_field(name="ID", value=f"`{member.id}`")
         embed.add_field(name="Nickname", value=member.nick or "none")
         embed.add_field(name="Bot?", value="yes" if member.bot else "no")
@@ -135,7 +135,7 @@ class Utility(commands.Cog):
     @app_commands.command(name="roleinfo", description="Show info about a role")
     @app_commands.guild_only()
     async def roleinfo(self, interaction: discord.Interaction, role: discord.Role):
-        embed = web_embed(role.name, color=role.color.value or BLUE)
+        embed = cozy_embed(role.name, color=role.color.value or LAVENDER)
         embed.add_field(name="ID", value=f"`{role.id}`")
         embed.add_field(name="Color", value=str(role.color))
         embed.add_field(name="Members", value=str(len(role.members)))
@@ -151,7 +151,7 @@ class Utility(commands.Cog):
     async def channelinfo(self, interaction: discord.Interaction,
                           channel: Optional[Union[discord.TextChannel, discord.VoiceChannel, discord.CategoryChannel]] = None):
         ch = channel or interaction.channel
-        embed = web_embed(ch.name, color=BLUE)
+        embed = cozy_embed(ch.name, color=LAVENDER)
         embed.add_field(name="ID", value=f"`{ch.id}`")
         embed.add_field(name="Type", value=str(ch.type).replace("_", " ").title())
         embed.add_field(name="Created", value=discord.utils.format_dt(ch.created_at, "R"))
@@ -171,15 +171,15 @@ class Utility(commands.Cog):
     async def membercount(self, interaction: discord.Interaction):
         g = interaction.guild
         bots = sum(1 for m in g.members if m.bot)
-        await interaction.response.send_message(embed=web_embed(
-            "Web Headcount", f"👥 **{g.member_count}** total\n🧑 **{g.member_count - bots}** humans\n🤖 **{bots}** bots", BLUE))
+        await interaction.response.send_message(embed=cozy_embed(
+            "Cozy Headcount", f"👥 **{g.member_count}** total\n🧑 **{g.member_count - bots}** humans\n🤖 **{bots}** bots", LAVENDER))
 
     @app_commands.command(name="banner", description="Show someone's profile banner")
     async def banner(self, interaction: discord.Interaction, user: Optional[discord.User] = None):
         user = await self.bot.fetch_user((user or interaction.user).id)
         if not user.banner:
             return await fail(interaction, "That user has no banner.")
-        embed = web_embed(f"{user.display_name}'s Banner", color=BLUE)
+        embed = cozy_embed(f"{user.display_name}'s Banner", color=LAVENDER)
         embed.set_image(url=user.banner.url)
         await interaction.response.send_message(embed=embed)
 
@@ -188,7 +188,7 @@ class Utility(commands.Cog):
     async def servericon(self, interaction: discord.Interaction):
         if not interaction.guild.icon:
             return await fail(interaction, "This server has no icon.")
-        embed = web_embed(f"{interaction.guild.name}'s Icon", color=BLUE)
+        embed = cozy_embed(f"{interaction.guild.name}'s Icon", color=LAVENDER)
         embed.set_image(url=interaction.guild.icon.url)
         await interaction.response.send_message(embed=embed)
 
@@ -196,17 +196,17 @@ class Utility(commands.Cog):
     @app_commands.guild_only()
     async def emojis(self, interaction: discord.Interaction):
         text = " ".join(str(e) for e in interaction.guild.emojis)[:4000] or "No custom emojis."
-        await interaction.response.send_message(embed=web_embed("Server Emojis", text, BLUE))
+        await interaction.response.send_message(embed=cozy_embed("Server Emojis", text, LAVENDER))
 
     @app_commands.command(name="roles", description="List all roles in this server")
     @app_commands.guild_only()
     async def roles(self, interaction: discord.Interaction):
         text = " ".join(r.mention for r in reversed(interaction.guild.roles[1:]))[:4000] or "No roles."
-        await interaction.response.send_message(embed=web_embed("Server Roles", text, BLUE))
+        await interaction.response.send_message(embed=cozy_embed("Server Roles", text, LAVENDER))
 
-    @app_commands.command(name="botinfo", description="About Spidey")
+    @app_commands.command(name="botinfo", description="About Hamsafar")
     async def botinfo(self, interaction: discord.Interaction):
-        embed = web_embed("About Spidey", "Your friendly neighborhood bot 🕷️", BLUE)
+        embed = cozy_embed("About Hamsafar", "Your cozy travel companion 🌙", LAVENDER)
         embed.add_field(name="Servers", value=str(len(self.bot.guilds)))
         embed.add_field(name="Users", value=str(sum(g.member_count or 0 for g in self.bot.guilds)))
         embed.add_field(name="Latency", value=f"{round(self.bot.latency * 1000)}ms")
@@ -216,16 +216,16 @@ class Utility(commands.Cog):
         embed.set_thumbnail(url=self.bot.user.display_avatar.url)
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="uptime", description="How long Spidey has been online")
+    @app_commands.command(name="uptime", description="How long Hamsafar has been online")
     async def uptime(self, interaction: discord.Interaction):
-        await interaction.response.send_message(embed=web_embed(
-            "Web Uptime", f"I've been swinging for **{fmt_duration(int(time.time() - self.started))}** 🕷️", BLUE))
+        await interaction.response.send_message(embed=cozy_embed(
+            "Cozy Uptime", f"I've been keeping the campfire warm for **{fmt_duration(int(time.time() - self.started))}** 🕯️", LAVENDER))
 
-    @app_commands.command(name="invite", description="Get Spidey's invite link")
+    @app_commands.command(name="invite", description="Get Hamsafar's invite link")
     async def invite(self, interaction: discord.Interaction):
         url = discord.utils.oauth_url(self.bot.user.id, permissions=discord.Permissions(administrator=True),
                                       scopes=("bot", "applications.commands"))
-        await interaction.response.send_message(embed=web_embed("Invite Spidey", f"[Click here to add me to a server 🕸️]({url})", BLUE))
+        await interaction.response.send_message(embed=cozy_embed("Invite Hamsafar", f"[Click here to add me to a server ☁️]({url})", LAVENDER))
 
     # ================================================================ TOOLS
     @app_commands.command(name="calc", description="Calculate a math expression")
@@ -234,21 +234,21 @@ class Utility(commands.Cog):
         try:
             result = safe_eval(expression)
         except ZeroDivisionError:
-            return await fail(interaction, "You can't divide by zero. 🕷️")
+            return await fail(interaction, "You can't divide by zero. 🌙")
         except (ValueError, SyntaxError, OverflowError, TypeError) as e:
             return await fail(interaction, str(e) if isinstance(e, ValueError) else "I couldn't read that expression.")
         if isinstance(result, float) and result.is_integer():
             result = int(result)
         text = f"`{expression}`\n= **{result}**"
-        await interaction.response.send_message(embed=web_embed("Web Calculator", text[:4000], BLUE))
+        await interaction.response.send_message(embed=cozy_embed("Cozy Calculator", text[:4000], LAVENDER))
 
-    @app_commands.command(name="choose", description="Let Spidey pick for you")
+    @app_commands.command(name="choose", description="Let Hamsafar pick for you")
     @app_commands.describe(options="Separate options with commas, e.g. pizza, burger, tacos")
     async def choose(self, interaction: discord.Interaction, options: str):
         items = [o.strip() for o in options.split(",") if o.strip()]
         if len(items) < 2:
             return await fail(interaction, "Give me at least 2 options separated by commas.")
-        await interaction.response.send_message(embed=web_embed("My Spider-Sense Says…", f"**{random.choice(items)}** 🕷️", BLUE))
+        await interaction.response.send_message(embed=cozy_embed("The Tea Leaves Say…", f"**{random.choice(items)}** 🍵", LAVENDER))
 
     @app_commands.command(name="roll", description="Roll dice, e.g. 2d6")
     @app_commands.describe(dice="Format NdM, like 1d20 or 3d6")
@@ -258,20 +258,20 @@ class Utility(commands.Cog):
             return await fail(interaction, "Use the format `NdM`, like `1d20` or `3d6`.")
         n, sides = int(m.group(1)), int(m.group(2))
         rolls = [random.randint(1, sides) for _ in range(n)]
-        await interaction.response.send_message(embed=web_embed(
-            "Dice Rolled!", f"🎲 {', '.join(map(str, rolls))}\n**Total:** {sum(rolls)}", BLUE))
+        await interaction.response.send_message(embed=cozy_embed(
+            "Dice Rolled!", f"🎲 {', '.join(map(str, rolls))}\n**Total:** {sum(rolls)}", LAVENDER))
 
     @app_commands.command(name="color", description="Preview a hex color")
-    @app_commands.describe(hex_code="e.g. #E62429")
+    @app_commands.describe(hex_code="e.g. #F2A47E")
     async def color(self, interaction: discord.Interaction, hex_code: str):
         value = parse_hex(hex_code)
         if value is None:
-            return await fail(interaction, "Give me a 6-digit hex code like `#E62429`.")
+            return await fail(interaction, "Give me a 6-digit hex code like `#F2A47E`.")
         r, g, b = (value >> 16) & 255, (value >> 8) & 255, value & 255
         h, s, v = colorsys.rgb_to_hsv(r / 255, g / 255, b / 255)
         text = (f"**HEX:** `#{value:06X}`\n**RGB:** `{r}, {g}, {b}`\n"
                 f"**HSV:** `{round(h * 360)}°, {round(s * 100)}%, {round(v * 100)}%`\n**Int:** `{value}`")
-        await interaction.response.send_message(embed=web_embed("Color Web", text, value))
+        await interaction.response.send_message(embed=cozy_embed("Color Palette", text, value))
 
     @app_commands.command(name="timestamp", description="Make Discord timestamps for a time from now")
     @app_commands.describe(duration="Time from now, e.g. 2h, 1d12h (leave empty for now)")
@@ -281,15 +281,15 @@ class Utility(commands.Cog):
             return await fail(interaction, "Use something like `30m`, `2h`, `1d12h`.")
         ts = int(time.time()) + secs
         rows = [f"`<t:{ts}:{f}>` → <t:{ts}:{f}>" for f in ("t", "T", "d", "D", "f", "F", "R")]
-        await interaction.response.send_message(embed=web_embed("Web Time", "\n".join(rows), BLUE), ephemeral=True)
+        await interaction.response.send_message(embed=cozy_embed("Timestamps", "\n".join(rows), LAVENDER), ephemeral=True)
 
     @app_commands.command(name="snowflake", description="Find out when a Discord ID was created")
     async def snowflake(self, interaction: discord.Interaction, id: str):
         if not id.isdigit():
             return await fail(interaction, "Give me a numeric Discord ID.")
         created = discord.utils.snowflake_time(int(id))
-        await interaction.response.send_message(embed=web_embed(
-            "Snowflake Decoded", f"Created {discord.utils.format_dt(created, 'F')} ({discord.utils.format_dt(created, 'R')})", BLUE),
+        await interaction.response.send_message(embed=cozy_embed(
+            "Snowflake Decoded", f"Created {discord.utils.format_dt(created, 'F')} ({discord.utils.format_dt(created, 'R')})", LAVENDER),
             ephemeral=True)
 
     @app_commands.command(name="password", description="Generate a strong random password (only you see it)")
@@ -297,7 +297,7 @@ class Utility(commands.Cog):
     async def password(self, interaction: discord.Interaction, length: app_commands.Range[int, 8, 64] = 16):
         chars = string.ascii_letters + string.digits + "!@#$%^&*-_"
         pw = "".join(secrets.choice(chars) for _ in range(length))
-        await interaction.response.send_message(embed=web_embed("Secret Silk", f"`{pw}`", DARK), ephemeral=True)
+        await interaction.response.send_message(embed=cozy_embed("Secret Whisper", f"`{pw}`", NIGHT), ephemeral=True)
 
     @app_commands.command(name="base64", description="Encode or decode base64")
     @app_commands.choices(mode=[app_commands.Choice(name="encode", value="encode"),
@@ -310,10 +310,10 @@ class Utility(commands.Cog):
                 out = base64.b64decode(text.encode(), validate=True).decode()
         except (ValueError, UnicodeDecodeError):
             return await fail(interaction, "That isn't valid base64.")
-        await interaction.response.send_message(embed=web_embed(f"Base64 {mode.name.title()}d", f"```{out[:3900]}```", BLUE), ephemeral=True)
+        await interaction.response.send_message(embed=cozy_embed(f"Base64 {mode.name.title()}d", f"```{out[:3900]}```", LAVENDER), ephemeral=True)
 
     # ================================================================ SENDING
-    @app_commands.command(name="say", description="Make Spidey send a message")
+    @app_commands.command(name="say", description="Make Hamsafar send a message")
     @app_commands.describe(message="What to say", channel="Where? (defaults to this channel)")
     @app_commands.guild_only()
     @app_commands.default_permissions(manage_messages=True)
@@ -325,7 +325,7 @@ class Utility(commands.Cog):
             await channel.send(message, allowed_mentions=discord.AllowedMentions.none())
         except discord.HTTPException as e:
             return await fail(interaction, e.text)
-        await interaction.response.send_message("Sent! 🕸️", ephemeral=True)
+        await interaction.response.send_message("Sent! ☁️", ephemeral=True)
 
     @app_commands.command(name="embed", description="Send a custom themed embed")
     @app_commands.describe(title="Embed title", description="Embed text", color="Hex color (optional)",
@@ -335,16 +335,16 @@ class Utility(commands.Cog):
     @app_commands.checks.has_permissions(manage_messages=True)
     async def embed_cmd(self, interaction: discord.Interaction, title: str, description: str,
                         color: Optional[str] = None, channel: Optional[discord.TextChannel] = None):
-        value = parse_hex(color) if color else RED
+        value = parse_hex(color) if color else PEACH
         if value is None:
-            return await fail(interaction, "Color must be a 6-digit hex code like `#E62429`.")
+            return await fail(interaction, "Color must be a 6-digit hex code like `#F2A47E`.")
         channel = channel or interaction.channel
         try:
-            await channel.send(embed=web_embed(title, description.replace("\\n", "\n"), value),
+            await channel.send(embed=cozy_embed(title, description.replace("\\n", "\n"), value),
                                allowed_mentions=discord.AllowedMentions.none())
         except discord.HTTPException as e:
             return await fail(interaction, e.text)
-        await interaction.response.send_message("Sent! 🕸️", ephemeral=True)
+        await interaction.response.send_message("Sent! ☁️", ephemeral=True)
 
     # ================================================================ POLLS & SUGGESTIONS
     @app_commands.command(name="poll", description="Create a poll (leave options empty for yes/no)")
@@ -362,7 +362,7 @@ class Utility(commands.Cog):
             reactions = NUMBER_EMOJIS[:len(options)]
         else:
             body, reactions = "React with ✅ or ❌", ["✅", "❌"]
-        embed = web_embed("Web Poll", f"**{question}**\n\n{body}", BLUE)
+        embed = cozy_embed("Cozy Poll", f"**{question}**\n\n{body}", LAVENDER)
         embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
         await interaction.response.send_message(embed=embed)
         msg = await interaction.original_response()
@@ -376,8 +376,8 @@ class Utility(commands.Cog):
     async def setsuggestchannel(self, interaction: discord.Interaction, channel: discord.TextChannel):
         self.store.data["suggest_channel"][str(interaction.guild.id)] = channel.id
         self.store.save()
-        await interaction.response.send_message(embed=web_embed(
-            "Suggestion Web Set!", f"Suggestions will go to {channel.mention} 🕸️", BLUE))
+        await interaction.response.send_message(embed=cozy_embed(
+            "Suggestion Box Set!", f"Suggestions will go to {channel.mention} ☁️", LAVENDER))
 
     @app_commands.command(name="suggest", description="Send a suggestion to the server staff")
     @app_commands.guild_only()
@@ -386,7 +386,7 @@ class Utility(commands.Cog):
         channel = interaction.guild.get_channel(cid) if cid else None
         if not channel:
             return await fail(interaction, "No suggestion channel is set. An admin can use `/setsuggestchannel`.")
-        embed = web_embed("New Suggestion", suggestion, BLUE)
+        embed = cozy_embed("New Suggestion", suggestion, LAVENDER)
         embed.set_author(name=interaction.user.display_name, icon_url=interaction.user.display_avatar.url)
         try:
             msg = await channel.send(embed=embed)
@@ -394,7 +394,7 @@ class Utility(commands.Cog):
             await msg.add_reaction("👎")
         except discord.HTTPException as e:
             return await fail(interaction, e.text)
-        await interaction.response.send_message("Your suggestion was sent! 🕸️", ephemeral=True)
+        await interaction.response.send_message("Your suggestion was sent! ☁️", ephemeral=True)
 
     # ================================================================ REMINDERS
     @app_commands.command(name="remind", description="Remind yourself about something later")
@@ -411,15 +411,15 @@ class Utility(commands.Cog):
             "time": time.time() + secs, "text": text,
         })
         self.store.save()
-        await interaction.response.send_message(embed=web_embed(
-            "Reminder Spun!", f"I'll remind you {discord.utils.format_dt(discord.utils.utcnow() + timedelta(seconds=secs), 'R')}:\n**{text}**\n(ID `{rid}`)", BLUE))
+        await interaction.response.send_message(embed=cozy_embed(
+            "Reminder Spun!", f"I'll remind you {discord.utils.format_dt(discord.utils.utcnow() + timedelta(seconds=secs), 'R')}:\n**{text}**\n(ID `{rid}`)", LAVENDER))
 
     @app_commands.command(name="reminders", description="List your pending reminders")
     async def reminders(self, interaction: discord.Interaction):
         mine = [r for r in self.store.data["reminders"] if r["user"] == interaction.user.id]
         lines = [f"`{r['id']}` • <t:{int(r['time'])}:R> — {r['text']}" for r in mine[:15]]
         await interaction.response.send_message(
-            embed=web_embed("Your Reminders", "\n".join(lines) or "No pending reminders. 🕸️", BLUE), ephemeral=True)
+            embed=cozy_embed("Your Reminders", "\n".join(lines) or "No pending reminders. ☁️", LAVENDER), ephemeral=True)
 
     @app_commands.command(name="delreminder", description="Delete one of your reminders")
     async def delreminder(self, interaction: discord.Interaction, reminder_id: int):
@@ -428,7 +428,7 @@ class Utility(commands.Cog):
                 self.store.data["reminders"].remove(r)
                 self.store.save()
                 return await interaction.response.send_message(
-                    embed=web_embed("Reminder Cut!", f"Deleted reminder `{reminder_id}`.", BLUE), ephemeral=True)
+                    embed=cozy_embed("Reminder Removed!", f"Deleted reminder `{reminder_id}`.", LAVENDER), ephemeral=True)
         await fail(interaction, "You have no reminder with that ID.")
 
     @tasks.loop(seconds=15)
@@ -437,7 +437,7 @@ class Utility(commands.Cog):
         for r in list(self.store.data["reminders"]):
             if r["time"] > now:
                 continue
-            embed = web_embed("Reminder!", f"⏰ {r['text']}", RED)
+            embed = cozy_embed("Reminder!", f"⏰ {r['text']}", PEACH)
             sent = False
             channel = self.bot.get_channel(r["channel"])
             if channel:
@@ -466,8 +466,8 @@ class Utility(commands.Cog):
         afk = self.store.data["afk"].setdefault(str(interaction.guild.id), {})
         afk[str(interaction.user.id)] = {"reason": reason[:200], "since": time.time()}
         self.store.save()
-        await interaction.response.send_message(embed=web_embed(
-            "Gone Swinging!", f"{interaction.user.mention} is now AFK: **{reason[:200]}** 🕷️", BLUE))
+        await interaction.response.send_message(embed=cozy_embed(
+            "Gone Wandering!", f"{interaction.user.mention} is now AFK: **{reason[:200]}** 🌿", LAVENDER))
 
     @commands.Cog.listener()
     async def on_message(self, message: discord.Message):
@@ -481,14 +481,14 @@ class Utility(commands.Cog):
             del afk[uid]
             self.store.save()
             await message.channel.send(
-                embed=web_embed("Welcome Back!", f"{message.author.mention}, I removed your AFK. 🕸️", BLUE),
+                embed=cozy_embed("Welcome Back!", f"{message.author.mention}, I removed your AFK. ☁️", LAVENDER),
                 delete_after=10)
         for m in message.mentions[:3]:
             entry = afk.get(str(m.id))
             if entry and m.id != message.author.id:
-                await message.channel.send(embed=web_embed(
+                await message.channel.send(embed=cozy_embed(
                     "They're Away!", f"**{m.display_name}** is AFK: {entry['reason']}\n"
-                                     f"(since <t:{int(entry['since'])}:R>)", DARK), delete_after=15)
+                                     f"(since <t:{int(entry['since'])}:R>)", NIGHT), delete_after=15)
 
     # ================================================================ TODO
     todo = app_commands.Group(name="todo", description="Your personal to-do list")
@@ -497,16 +497,16 @@ class Utility(commands.Cog):
     async def todo_add(self, interaction: discord.Interaction, item: str):
         items = self.store.data["todos"].setdefault(str(interaction.user.id), [])
         if len(items) >= 25:
-            return await fail(interaction, "Your list is full (25 items). Finish some first! 🕷️")
+            return await fail(interaction, "Your list is full (25 items). Finish some first! 🌙")
         items.append(item[:200])
         self.store.save()
-        await interaction.response.send_message(embed=web_embed("Task Spun!", f"Added: **{item[:200]}**", BLUE), ephemeral=True)
+        await interaction.response.send_message(embed=cozy_embed("Task Added!", f"Added: **{item[:200]}**", LAVENDER), ephemeral=True)
 
     @todo.command(name="list", description="Show your to-do list")
     async def todo_list(self, interaction: discord.Interaction):
         items = self.store.data["todos"].get(str(interaction.user.id), [])
-        text = "\n".join(f"**{i}.** {t}" for i, t in enumerate(items, 1)) or "Nothing to do! 🕸️"
-        await interaction.response.send_message(embed=web_embed("Your To-Do Web", text, BLUE), ephemeral=True)
+        text = "\n".join(f"**{i}.** {t}" for i, t in enumerate(items, 1)) or "Nothing to do! ☁️"
+        await interaction.response.send_message(embed=cozy_embed("Your Cozy To-Do List", text, LAVENDER), ephemeral=True)
 
     @todo.command(name="done", description="Complete (remove) an item by its number")
     async def todo_done(self, interaction: discord.Interaction, number: int):
@@ -515,13 +515,13 @@ class Utility(commands.Cog):
             return await fail(interaction, "No item with that number.")
         done = items.pop(number - 1)
         self.store.save()
-        await interaction.response.send_message(embed=web_embed("Task Done!", f"✅ ~~{done}~~", BLUE), ephemeral=True)
+        await interaction.response.send_message(embed=cozy_embed("Task Done!", f"✅ ~~{done}~~", LAVENDER), ephemeral=True)
 
     @todo.command(name="clear", description="Clear your whole to-do list")
     async def todo_clear(self, interaction: discord.Interaction):
         self.store.data["todos"][str(interaction.user.id)] = []
         self.store.save()
-        await interaction.response.send_message(embed=web_embed("Web Cleared!", "Your to-do list is empty. 🕸️", BLUE), ephemeral=True)
+        await interaction.response.send_message(embed=cozy_embed("List Cleared!", "Your to-do list is empty. ☁️", LAVENDER), ephemeral=True)
 
     # ================================================================ GIVEAWAYS
     giveaway = app_commands.Group(
@@ -536,7 +536,7 @@ class Utility(commands.Cog):
         if not secs or secs > 30 * 86400:
             return await fail(interaction, "Use a duration like `30m`, `2h` or `1d` (max 30d).")
         end = int(time.time()) + secs
-        embed = web_embed("GIVEAWAY!", f"🎁 **{prize}**\n\nReact with 🎉 to enter!\n"
+        embed = cozy_embed("GIVEAWAY!", f"🎁 **{prize}**\n\nReact with 🎉 to enter!\n"
                                        f"**Ends:** <t:{end}:R>\n**Winners:** {winners}\n**Host:** {interaction.user.mention}")
         await interaction.response.send_message(embed=embed)
         msg = await interaction.original_response()
@@ -570,9 +570,9 @@ class Utility(commands.Cog):
             text = f"🎁 **{g['prize']}**\n\n**Winner(s):** {names}"
             announce = f"🎉 Congrats {names}! You won **{g['prize']}**!"
         else:
-            text = f"🎁 **{g['prize']}**\n\nNobody entered. 🕸️"
-            announce = "Nobody entered the giveaway. 🕸️"
-        await msg.edit(embed=web_embed("GIVEAWAY ENDED", text, DARK))
+            text = f"🎁 **{g['prize']}**\n\nNobody entered. ☁️"
+            announce = "Nobody entered the giveaway. ☁️"
+        await msg.edit(embed=cozy_embed("GIVEAWAY ENDED", text, NIGHT))
         await msg.channel.send(announce, reference=msg)
 
     @giveaway.command(name="end", description="End a giveaway early")
@@ -611,18 +611,18 @@ class Utility(commands.Cog):
         await self.bot.wait_until_ready()
 
       
-    # ================================================================ SPIDEY MAIL
+    # ================================================================ HAMSAFAR POSTCARDS
 
     @app_commands.command(
         name="mail",
-        description="Send a Spider-themed mail to a server member",
+        description="Send a cozy postcard to a server member",
     )
     @app_commands.guild_only()
     async def mail(self, interaction: discord.Interaction):
 
-        class MailModal(discord.ui.Modal, title="🕷️ Friendly Neighborhood Mail"):
+        class MailModal(discord.ui.Modal, title="💌 A Postcard From a Friend"):
             message = discord.ui.TextInput(
-                label="Your web-mail message",
+                label="Your postcard message",
                 placeholder="Write your message...",
                 style=discord.TextStyle.paragraph,
                 max_length=1500,
@@ -637,46 +637,46 @@ class Utility(commands.Cog):
                 recipient = self.recipient
 
                 try:
-                    embed = web_embed(
-                        "🕸️ You've Got Web-Mail!",
+                    embed = cozy_embed(
+                        "💌 You've Got a Postcard!",
                         str(self.message),
-                        RED,
+                        PEACH,
                     )
                     embed.set_author(
                         name=f"From: {modal_interaction.user.display_name}",
                         icon_url=modal_interaction.user.display_avatar.url,
                     )
                     embed.set_footer(
-                        text="🕷️ Delivered by Spidey • Friendly Neighborhood Bot"
+                        text="🌙 Delivered by Hamsafar • Your cozy travel companion"
                     )
 
                     await recipient.send(embed=embed)
 
                 except discord.Forbidden:
                     await modal_interaction.response.send_message(
-                        "🕸️ I couldn't deliver your mail. Their DMs may be closed.",
+                        "🌙 I couldn't deliver your postcard. Their DMs may be closed.",
                         ephemeral=True,
                     )
                     return
                 except discord.HTTPException:
                     await modal_interaction.response.send_message(
-                        "🕷️ Discord couldn't deliver your mail. Try again later.",
+                        "🌙 Discord couldn't deliver your postcard. Try again later.",
                         ephemeral=True,
                     )
                     return
 
                 # Update the original /mail selection message
                 await modal_interaction.response.send_message(
-                    "🕸️ Your mail has been delivered!",
+                    "💌 Your postcard has been delivered!",
                     ephemeral=True,
                 )
 
                 try:
                     await interaction.edit_original_response(
-                        embed=web_embed(
-                            "🕸️ Your mail has been delivered!",
-                            "Your message reached its destination, friendly neighbor! 🕷️",
-                            RED,
+                        embed=cozy_embed(
+                            "💌 Your postcard has been delivered!",
+                            "Your message reached its destination, fellow traveler! 🌙",
+                            PEACH,
                         ),
                         view=None,
                     )
@@ -689,7 +689,7 @@ class Utility(commands.Cog):
                 self.author_id = interaction.user.id
 
                 self.recipient_select = discord.ui.UserSelect(
-                    placeholder="🕸️ Choose your recipient",
+                    placeholder="💌 Choose your recipient",
                     min_values=1,
                     max_values=1,
                 )
@@ -699,7 +699,7 @@ class Utility(commands.Cog):
             async def interaction_check(self, select_interaction: discord.Interaction):
                 if select_interaction.user.id != self.author_id:
                     await select_interaction.response.send_message(
-                        "🕷️ This web-mail panel belongs to another hero!",
+                        "🌙 This postcard panel belongs to another traveler!",
                         ephemeral=True,
                     )
                     return False
@@ -710,10 +710,10 @@ class Utility(commands.Cog):
 
                 if recipient.id == select_interaction.user.id:
                     await interaction.edit_original_response(
-                        embed=web_embed(
-                            "🕷️ Friendly Neighborhood Reminder",
+                        embed=cozy_embed(
+                            "🌙 A Gentle Reminder",
                             "You can't send a message to yourself!",
-                            RED,
+                            PEACH,
                         ),
                         view=self,
                     )
@@ -721,22 +721,22 @@ class Utility(commands.Cog):
 
                 if recipient.bot:
                     if recipient.id == interaction.client.user.id:
-                        text = "🕸️ You can send messages to me!"
+                        text = "🌙 Aww, you can send messages to me!"
                     else:
-                        text = "🕷️ Web-mail is for fellow heroes, not other bots!"
+                        text = "🌙 Postcards are for fellow travelers, not other bots!"
 
                     await interaction.edit_original_response(
-                        embed=web_embed("🕷️ Spidey Says...", text, RED),
+                        embed=cozy_embed("🌙 Hamsafar Says...", text, PEACH),
                         view=self,
                     )
                     return
 
                 if not isinstance(recipient, discord.Member):
                     await interaction.edit_original_response(
-                        embed=web_embed(
-                            "🕷️ Web-Mail",
+                        embed=cozy_embed(
+                            "💌 Postcard",
                             "Please select a member of this server.",
-                            RED,
+                            PEACH,
                         ),
                         view=self,
                     )
@@ -745,10 +745,10 @@ class Utility(commands.Cog):
                 await select_interaction.response.send_modal(MailModal(recipient))
 
         await interaction.response.send_message(
-            embed=web_embed(
-                "🕷️ Spidey Web-Mail",
-                "Choose a server member to send them a private web-mail! 🕸️",
-                RED,
+            embed=cozy_embed(
+                "💌 Hamsafar Postcards",
+                "Choose a server member to send them a private postcard! 💌",
+                PEACH,
             ),
             view=RecipientView(),
             ephemeral=True,

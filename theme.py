@@ -1,15 +1,20 @@
 import discord
 
-RED = 0xE62429
-DARK = 0x1B1B2F
-BLUE = 0x2B4EA2
-FOOTER = "🕸️ Spidey • Your friendly neighborhood bot"
+# 🌙 Hamsafar palette - a warm dusk: apricot glow, soft lavender, midnight indigo
+PEACH = 0xF2A47E      # main accent (warm apricot)
+LAVENDER = 0xB8A9D9   # soft secondary
+NIGHT = 0x4A3F6B      # quiet, muted indigo for gentle / serious embeds
+SAGE = 0xA8C3A0       # soft green
+ROSE = 0xE5989B       # soft rose
+CREAM = 0xFFF1E0
+
+FOOTER = "🌙 Hamsafar • travel together, stay cozy"
 
 
-def web_embed(title: str, description: str = "", color: int = RED) -> discord.Embed:
+def cozy_embed(title: str, description: str = "", color: int = PEACH) -> discord.Embed:
     """Every embed goes through here so the theme stays consistent."""
     embed = discord.Embed(
-        title=f"🕷️ {title} 🕸️",
+        title=f"🌙 {title} ✨",
         description=description,
         color=color,
     )
