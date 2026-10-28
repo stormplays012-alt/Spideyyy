@@ -11,7 +11,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from theme import cozy_embed, PEACH, LAVENDER, NIGHT
+from theme import web_embed, RED, BLUE, DARK
 
 DATA_FILE = "moderation.json"
 DEFAULT_REASON = "No reason provided"
@@ -40,7 +40,7 @@ def fmt_duration(seconds: int) -> str:
 
 
 async def fail(interaction: discord.Interaction, text: str):
-    embed = cozy_embed("Oops, a Little Bump!", text, NIGHT)
+    embed = web_embed("Web Snagged!", text, DARK)
     if interaction.response.is_done():
         await interaction.followup.send(embed=embed, ephemeral=True)
     else:
@@ -50,9 +50,9 @@ async def fail(interaction: discord.Interaction, text: str):
 def hierarchy_error(interaction: discord.Interaction, target: discord.Member) -> Optional[str]:
     guild = interaction.guild
     if target.id == interaction.user.id:
-        return "You can't do that to yourself. 🌙"
+        return "You can't do that to yourself. 🕷️"
     if target.id == guild.me.id:
-        return "Nice try, but you can't use me on myself! ☁️"
+        return "Nice try, but you can't use me on myself! 🕸️"
     if target.id == guild.owner_id:
         return "You can't touch the server owner."
     if interaction.user.id != guild.owner_id and target.top_role >= interaction.user.top_role:
@@ -138,23 +138,23 @@ class Moderation(commands.Cog):
                     f"**Moderator:** <@{mod_id}>\n"
                     f"**Reason:** {reason}\n{extra}")
             try:
-                await ch.send(embed=cozy_embed(f"Case #{case['id']} • {type_.upper()}", desc, NIGHT))
+                await ch.send(embed=web_embed(f"Case #{case['id']} • {type_.upper()}", desc, DARK))
             except discord.HTTPException:
                 pass
         return case
 
     async def dm(self, user, title: str, guild: discord.Guild, reason: str, extra: str = ""):
         try:
-            await user.send(embed=cozy_embed(
-                title, f"**Server:** {guild.name}\n**Reason:** {reason}\n{extra}", NIGHT))
+            await user.send(embed=web_embed(
+                title, f"**Server:** {guild.name}\n**Reason:** {reason}\n{extra}", DARK))
         except (discord.Forbidden, discord.HTTPException):
             pass
 
     @staticmethod
-    def result(title, target, reason, case, extra="", color=PEACH):
+    def result(title, target, reason, case, extra="", color=RED):
         desc = (f"**User:** {target.mention} (`{target.id}`)\n"
                 f"**Reason:** {reason}\n{extra}**Case:** #{case['id']}")
-        return cozy_embed(title, desc, color)
+        return web_embed(title, desc, color)
 
     def warn_count(self, guild_id, user_id) -> int:
         return sum(1 for c in self.store.guild(guild_id)["cases"]
@@ -195,7 +195,7 @@ class Moderation(commands.Cog):
         except discord.HTTPException as e:
             return await fail(interaction, e.text)
         case = await self.record(interaction.guild, "kick", member.id, interaction.user.id, reason)
-        await interaction.response.send_message(embed=self.result("Waved Off the Trail!", member, reason, case))
+        await interaction.response.send_message(embed=self.result("Yeeted from the Web!", member, reason, case))
 
     @app_commands.command(name="ban", description="Ban a member (or a user ID) from the server")
     @app_commands.describe(user="Who to ban", reason="Why?", delete_days="Delete their messages from the last X days (0-7)")
@@ -207,7 +207,7 @@ class Moderation(commands.Cog):
             if err := hierarchy_error(interaction, member):
                 return await fail(interaction, err)
         elif user.id in (interaction.user.id, interaction.guild.me.id):
-            return await fail(interaction, "Nope, can't do that. 🌙")
+            return await fail(interaction, "Nope, can't do that. 🕷️")
         await self.dm(user, "You were banned 🔨", interaction.guild, reason)
         try:
             await interaction.guild.ban(user, reason=f"{interaction.user}: {reason}",
@@ -215,7 +215,7 @@ class Moderation(commands.Cog):
         except discord.HTTPException as e:
             return await fail(interaction, e.text)
         case = await self.record(interaction.guild, "ban", user.id, interaction.user.id, reason)
-        await interaction.response.send_message(embed=self.result("Banned from the Journey!", user, reason, case))
+        await interaction.response.send_message(embed=self.result("Trapped in the Web Forever!", user, reason, case))
 
     @app_commands.command(name="tempban", description="Ban someone for a set time, then auto-unban")
     @app_commands.describe(user="Who to ban", duration="e.g. 30m, 12h, 7d, 1d12h", reason="Why?")
@@ -229,7 +229,7 @@ class Moderation(commands.Cog):
         if member and (err := hierarchy_error(interaction, member)):
             return await fail(interaction, err)
         if user.id in (interaction.user.id, interaction.guild.me.id):
-            return await fail(interaction, "Nope, can't do that. 🌙")
+            return await fail(interaction, "Nope, can't do that. 🕷️")
         await self.dm(user, "You were temporarily banned ⏳", interaction.guild, reason,
                       f"**Duration:** {fmt_duration(secs)}")
         try:
@@ -242,7 +242,7 @@ class Moderation(commands.Cog):
         case = await self.record(interaction.guild, "tempban", user.id, interaction.user.id, reason,
                                  extra=f"**Duration:** {fmt_duration(secs)}\n")
         await interaction.response.send_message(embed=self.result(
-            "Taking a Long Break!", user, reason, case, f"**Duration:** {fmt_duration(secs)}\n"))
+            "Webbed Up Temporarily!", user, reason, case, f"**Duration:** {fmt_duration(secs)}\n"))
 
     @app_commands.command(name="softban", description="Ban + instantly unban to wipe their recent messages")
     @app_commands.describe(member="Who to softban", reason="Why?")
@@ -259,7 +259,7 @@ class Moderation(commands.Cog):
         except discord.HTTPException as e:
             return await fail(interaction, e.text)
         case = await self.record(interaction.guild, "softban", member.id, interaction.user.id, reason)
-        await interaction.response.send_message(embed=self.result("Fresh Start!", member, reason, case))
+        await interaction.response.send_message(embed=self.result("Web Cleaned!", member, reason, case))
 
     @app_commands.command(name="unban", description="Unban a user")
     @app_commands.describe(user="Pick from the ban list", reason="Why?")
@@ -278,7 +278,7 @@ class Moderation(commands.Cog):
         self.store.save()
         case = await self.record(interaction.guild, "unban", int(user), interaction.user.id, reason)
         target = SimpleNamespace(id=int(user), mention=f"<@{user}>")
-        await interaction.response.send_message(embed=self.result("Welcome Back to the Trail!", target, reason, case, color=LAVENDER))
+        await interaction.response.send_message(embed=self.result("Freed from the Web!", target, reason, case, color=BLUE))
 
     @unban.autocomplete("user")
     async def unban_autocomplete(self, interaction: discord.Interaction, current: str):
@@ -299,9 +299,9 @@ class Moderation(commands.Cog):
     async def banlist(self, interaction: discord.Interaction):
         lines = []
         async for entry in interaction.guild.bans(limit=20):
-            lines.append(f"☁️ **{entry.user}** (`{entry.user.id}`) — {entry.reason or 'no reason'}")
+            lines.append(f"🕸️ **{entry.user}** (`{entry.user.id}`) — {entry.reason or 'no reason'}")
         await interaction.response.send_message(
-            embed=cozy_embed("Banned Travelers", "\n".join(lines) or "Nobody is banned. 🌙", NIGHT), ephemeral=True)
+            embed=web_embed("Banned Flies", "\n".join(lines) or "Nobody is banned. 🕷️", DARK), ephemeral=True)
 
     # ================================================================ MUTE / TIMEOUT
     @app_commands.command(name="mute", description="Timeout (mute) a member")
@@ -322,7 +322,7 @@ class Moderation(commands.Cog):
         case = await self.record(interaction.guild, "mute", member.id, interaction.user.id, reason,
                                  extra=f"**Duration:** {fmt_duration(secs)}\n")
         await interaction.response.send_message(embed=self.result(
-            "Quiet Time!", member, reason, case, f"**Duration:** {fmt_duration(secs)}\n"))
+            "Silk Over the Mouth!", member, reason, case, f"**Duration:** {fmt_duration(secs)}\n"))
 
     @app_commands.command(name="unmute", description="Remove a member's timeout")
     @app_commands.describe(member="Who to unmute", reason="Why?")
@@ -336,7 +336,7 @@ class Moderation(commands.Cog):
         except discord.HTTPException as e:
             return await fail(interaction, e.text)
         case = await self.record(interaction.guild, "unmute", member.id, interaction.user.id, reason)
-        await interaction.response.send_message(embed=self.result("Quiet Time Over!", member, reason, case, color=LAVENDER))
+        await interaction.response.send_message(embed=self.result("Web Removed!", member, reason, case, color=BLUE))
 
     # ================================================================ WARNINGS
     @app_commands.command(name="warn", description="Warn a member")
@@ -350,7 +350,7 @@ class Moderation(commands.Cog):
         await self.dm(member, "You received a warning ⚠️", interaction.guild, reason,
                       f"**Total warnings:** {total}")
         await interaction.response.send_message(embed=self.result(
-            "Gentle Warning!", member, reason, case, f"**Total warnings:** {total}\n"))
+            "Warning Spun!", member, reason, case, f"**Total warnings:** {total}\n"))
 
     @app_commands.command(name="warnings", description="See a member's active warnings")
     @app_commands.describe(member="Whose warnings?")
@@ -360,8 +360,8 @@ class Moderation(commands.Cog):
                  if c["type"] == "warn" and c["user"] == member.id and c["active"]]
         lines = [f"**#{c['id']}** • {c['reason']} — <@{c['mod']}> <t:{c['time']}:R>" for c in warns[-15:]]
         await interaction.response.send_message(
-            embed=cozy_embed(f"{member.display_name}'s Warnings",
-                            "\n".join(lines) or "No active warnings. ☁️", NIGHT), ephemeral=True)
+            embed=web_embed(f"{member.display_name}'s Warnings",
+                            "\n".join(lines) or "No active warnings. 🕸️", DARK), ephemeral=True)
 
     @app_commands.command(name="delwarn", description="Remove one warning by case number")
     @app_commands.describe(case_id="The case number of the warning")
@@ -373,8 +373,8 @@ class Moderation(commands.Cog):
                 self.store.save()
                 await self.record(interaction.guild, "delwarn", c["user"], interaction.user.id,
                                   f"Removed warning #{case_id}")
-                return await interaction.response.send_message(embed=cozy_embed(
-                    "Warning Removed!", f"Warning **#{case_id}** for <@{c['user']}> was cleared. ☁️", LAVENDER))
+                return await interaction.response.send_message(embed=web_embed(
+                    "Warning Removed!", f"Warning **#{case_id}** for <@{c['user']}> was cleared. 🕸️", BLUE))
         await fail(interaction, "No active warning with that case number.")
 
     @app_commands.command(name="clearwarnings", description="Clear all of a member's warnings")
@@ -389,8 +389,8 @@ class Moderation(commands.Cog):
         self.store.save()
         await self.record(interaction.guild, "clearwarns", member.id, interaction.user.id,
                           f"Cleared {count} warning(s)")
-        await interaction.response.send_message(embed=cozy_embed(
-            "Slate Wiped Clean!", f"Cleared **{count}** warning(s) for {member.mention}. ☁️", LAVENDER))
+        await interaction.response.send_message(embed=web_embed(
+            "Slate Wiped Clean!", f"Cleared **{count}** warning(s) for {member.mention}. 🕸️", BLUE))
 
     # ================================================================ CASES
     @app_commands.command(name="modlogs", description="Show a user's moderation history")
@@ -400,7 +400,7 @@ class Moderation(commands.Cog):
         cases = [c for c in self.store.guild(interaction.guild.id)["cases"] if c["user"] == user.id]
         lines = [f"**#{c['id']}** `{c['type'].upper()}` • {c['reason']} <t:{c['time']}:R>" for c in cases[-10:]]
         await interaction.response.send_message(
-            embed=cozy_embed(f"Case File: {user}", "\n".join(lines) or "Clean record. ☁️", NIGHT), ephemeral=True)
+            embed=web_embed(f"Case File: {user}", "\n".join(lines) or "Clean record. 🕸️", DARK), ephemeral=True)
 
     @app_commands.command(name="case", description="Look up a case by number")
     @app_commands.describe(case_id="Case number")
@@ -411,7 +411,7 @@ class Moderation(commands.Cog):
                 desc = (f"**Type:** {c['type'].upper()}\n**User:** <@{c['user']}> (`{c['user']}`)\n"
                         f"**Moderator:** <@{c['mod']}>\n**Reason:** {c['reason']}\n**When:** <t:{c['time']}:F>")
                 return await interaction.response.send_message(
-                    embed=cozy_embed(f"Case #{case_id}", desc, NIGHT), ephemeral=True)
+                    embed=web_embed(f"Case #{case_id}", desc, DARK), ephemeral=True)
         await fail(interaction, "No case with that number.")
 
     @app_commands.command(name="setlogchannel", description="Set the channel where mod actions are logged")
@@ -422,8 +422,8 @@ class Moderation(commands.Cog):
         g = self.store.guild(interaction.guild.id)
         g["log_channel"] = channel.id if channel else None
         self.store.save()
-        text = f"Mod actions will be logged in {channel.mention} ☁️" if channel else "Mod logging is off."
-        await interaction.response.send_message(embed=cozy_embed("Log Channel Set!", text, LAVENDER))
+        text = f"Mod actions will be logged in {channel.mention} 🕸️" if channel else "Mod logging is off."
+        await interaction.response.send_message(embed=web_embed("Log Web Set!", text, BLUE))
 
     # ================================================================ CHANNEL TOOLS
     @app_commands.command(name="purge", description="Bulk delete recent messages")
@@ -450,8 +450,8 @@ class Moderation(commands.Cog):
             return await fail(interaction, e.text)
         await self.record(interaction.guild, "purge", member.id if member else interaction.user.id,
                           interaction.user.id, f"Purged {len(deleted)} message(s) in #{interaction.channel}")
-        await interaction.followup.send(embed=cozy_embed(
-            "Tidied Up!", f"Cleaned up **{len(deleted)}** message(s). 🧹🍃\n"
+        await interaction.followup.send(embed=web_embed(
+            "Web Swept!", f"Cleaned up **{len(deleted)}** message(s). 🧹🕸️\n"
                           "(Messages older than 14 days can't be bulk deleted.)"), ephemeral=True)
 
     @app_commands.command(name="slowmode", description="Set a channel's slowmode")
@@ -468,7 +468,7 @@ class Moderation(commands.Cog):
             return await fail(interaction, e.text)
         text = f"Slowmode in {channel.mention} is now **{seconds}s** 🐌" if seconds else \
                f"Slowmode in {channel.mention} is **off**."
-        await interaction.response.send_message(embed=cozy_embed("Slowmode Set!", text, LAVENDER))
+        await interaction.response.send_message(embed=web_embed("Web Slowed!", text, BLUE))
 
     @app_commands.command(name="lock", description="Stop everyone from chatting in a channel")
     @app_commands.describe(channel="Channel (defaults to this one)", reason="Why?")
@@ -485,8 +485,8 @@ class Moderation(commands.Cog):
             await channel.set_permissions(everyone, overwrite=ow, reason=f"Lock by {interaction.user}: {reason}")
         except discord.HTTPException as e:
             return await fail(interaction, e.text)
-        await interaction.response.send_message(embed=cozy_embed(
-            "Channel Locked!", f"{channel.mention} is locked. 🔒\n**Reason:** {reason}"))
+        await interaction.response.send_message(embed=web_embed(
+            "Web Sealed!", f"{channel.mention} is locked. 🔒\n**Reason:** {reason}"))
 
     @app_commands.command(name="unlock", description="Let everyone chat in a channel again")
     @app_commands.describe(channel="Channel (defaults to this one)")
@@ -502,8 +502,8 @@ class Moderation(commands.Cog):
             await channel.set_permissions(everyone, overwrite=ow, reason=f"Unlock by {interaction.user}")
         except discord.HTTPException as e:
             return await fail(interaction, e.text)
-        await interaction.response.send_message(embed=cozy_embed(
-            "Channel Unlocked!", f"{channel.mention} is unlocked. 🔓", LAVENDER))
+        await interaction.response.send_message(embed=web_embed(
+            "Web Reopened!", f"{channel.mention} is unlocked. 🔓", BLUE))
 
     @app_commands.command(name="lockdown", description="Lock EVERY text channel (emergency raid protection)")
     @app_commands.describe(reason="Why?")
@@ -526,8 +526,8 @@ class Moderation(commands.Cog):
                 pass
         self.store.save()
         await self.record(interaction.guild, "lockdown", interaction.user.id, interaction.user.id, reason)
-        await interaction.followup.send(embed=cozy_embed(
-            "SERVER LOCKDOWN!", f"Locked **{count}** channel(s). 🚨🌙\n**Reason:** {reason}"))
+        await interaction.followup.send(embed=web_embed(
+            "WEB LOCKDOWN!", f"Locked **{count}** channel(s). 🚨🕸️\n**Reason:** {reason}"))
 
     @app_commands.command(name="unlockdown", description="Undo /lockdown")
     @mod_perms(administrator=True)
@@ -548,8 +548,8 @@ class Moderation(commands.Cog):
                     pass
         g["lockdown"] = []
         self.store.save()
-        await interaction.followup.send(embed=cozy_embed(
-            "Lockdown Lifted!", f"Unlocked **{count}** channel(s). ☁️", LAVENDER))
+        await interaction.followup.send(embed=web_embed(
+            "Lockdown Lifted!", f"Unlocked **{count}** channel(s). 🕸️", BLUE))
 
     # ================================================================ MEMBER TOOLS
     @app_commands.command(name="nick", description="Change or reset a member's nickname")
@@ -563,8 +563,8 @@ class Moderation(commands.Cog):
             await member.edit(nick=nickname, reason=f"Nick change by {interaction.user}")
         except discord.HTTPException as e:
             return await fail(interaction, e.text)
-        text = f"{member.mention} is now **{nickname}** 🌙" if nickname else f"{member.mention}'s nickname was reset."
-        await interaction.response.send_message(embed=cozy_embed("Nickname Updated!", text, LAVENDER))
+        text = f"{member.mention} is now **{nickname}** 🕷️" if nickname else f"{member.mention}'s nickname was reset."
+        await interaction.response.send_message(embed=web_embed("Name Respun!", text, BLUE))
 
     @app_commands.command(name="addrole", description="Give a role to a member")
     @app_commands.describe(member="Who?", role="Which role?")
@@ -576,8 +576,8 @@ class Moderation(commands.Cog):
             await member.add_roles(role, reason=f"Role added by {interaction.user}")
         except discord.HTTPException as e:
             return await fail(interaction, e.text)
-        await interaction.response.send_message(embed=cozy_embed(
-            "Role Given!", f"Gave {role.mention} to {member.mention} ☁️", LAVENDER))
+        await interaction.response.send_message(embed=web_embed(
+            "Role Spun!", f"Gave {role.mention} to {member.mention} 🕸️", BLUE))
 
     @app_commands.command(name="removerole", description="Remove a role from a member")
     @app_commands.describe(member="Who?", role="Which role?")
@@ -589,8 +589,8 @@ class Moderation(commands.Cog):
             await member.remove_roles(role, reason=f"Role removed by {interaction.user}")
         except discord.HTTPException as e:
             return await fail(interaction, e.text)
-        await interaction.response.send_message(embed=cozy_embed(
-            "Role Removed!", f"Removed {role.mention} from {member.mention} ☁️", LAVENDER))
+        await interaction.response.send_message(embed=web_embed(
+            "Role Snipped!", f"Removed {role.mention} from {member.mention} 🕸️", BLUE))
 
     @app_commands.command(name="userinfo", description="Show info about a member")
     @app_commands.describe(member="Who? (defaults to you)")
@@ -600,7 +600,7 @@ class Moderation(commands.Cog):
         roles = ", ".join(r.mention for r in member.roles[1:][-10:]) or "none"
         muted = (f"until {discord.utils.format_dt(member.timed_out_until, 'R')}"
                  if member.is_timed_out() else "no")
-        embed = cozy_embed(f"{member.display_name}", color=LAVENDER)
+        embed = web_embed(f"{member.display_name}", color=BLUE)
         embed.add_field(name="ID", value=f"`{member.id}`")
         embed.add_field(name="Created", value=discord.utils.format_dt(member.created_at, "R"))
         embed.add_field(name="Joined", value=discord.utils.format_dt(member.joined_at, "R") if member.joined_at else "?")
@@ -621,7 +621,7 @@ class Moderation(commands.Cog):
             await member.edit(reason=f"Voice action by {interaction.user}", **edit)
         except discord.HTTPException as e:
             return await fail(interaction, e.text)
-        await interaction.response.send_message(embed=cozy_embed(title, text, LAVENDER))
+        await interaction.response.send_message(embed=web_embed(title, text, BLUE))
 
     @app_commands.command(name="vcmute", description="Server-mute a member in voice")
     @mod_perms(mute_members=True)
@@ -646,7 +646,7 @@ class Moderation(commands.Cog):
     @app_commands.command(name="vckick", description="Disconnect a member from voice")
     @mod_perms(move_members=True)
     async def vckick(self, interaction: discord.Interaction, member: discord.Member):
-        await self._voice_action(interaction, member, "Walked Out of Voice!",
+        await self._voice_action(interaction, member, "Swung Out of Voice!",
                                  f"{member.mention} was disconnected 🥾", voice_channel=None)
 
     @app_commands.command(name="vcmove", description="Move a member to another voice channel")
@@ -654,8 +654,8 @@ class Moderation(commands.Cog):
     @mod_perms(move_members=True)
     async def vcmove(self, interaction: discord.Interaction, member: discord.Member,
                      channel: discord.VoiceChannel):
-        await self._voice_action(interaction, member, "Moved Along!",
-                                 f"Moved {member.mention} to {channel.mention} 🌙", voice_channel=channel)
+        await self._voice_action(interaction, member, "Web Swing!",
+                                 f"Moved {member.mention} to {channel.mention} 🕷️", voice_channel=channel)
 
 
 async def setup(bot: commands.Bot):

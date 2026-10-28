@@ -10,13 +10,13 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from theme import cozy_embed, PEACH, LAVENDER, NIGHT
+from theme import web_embed, RED, BLUE, DARK
 from moderation import fail
 
 DATA_FILE = "economy.json"
 
-EMOJI = "✨"
-START_STARDUST = 500
+EMOJI = "🕸️"
+START_WEBS = 500
 MIN_BET = 10
 MAX_BET = 100_000
 
@@ -26,30 +26,30 @@ WORK_RANGE = (80, 220)
 COOLDOWNS = {"daily": 86400, "weekly": 604800, "work": 3600, "rob": 3600}
 
 JOBS = [
-    "served chai at a roadside stall ☕",
-    "baked fresh bread for the morning rush 🍞",
-    "sold handmade candles at the night market 🕯️",
-    "rescued a kitten from a tree 🐈",
-    "helped a lost traveler find their way 🧭",
+    "delivered pizzas across Queens 🍕",
+    "stopped a runaway bus 🚌",
+    "took photos for the Daily Bugle 📸",
+    "rescued a cat from a tree 🐈",
+    "fixed web-shooters for a neighbor 🔧",
     "tutored a kid in science 🧪",
-    "painted a mural on a quiet street wall 🎨",
-    "watered the plants at the cozy café 🪴",
+    "cleaned graffiti off a skyscraper 🏙️",
+    "caught a pickpocket mid-swing 🕷️",
 ]
 
 # built-in shop items (every server gets these; admins can add role items)
 ITEMS = {
-    "lock":    {"name": "Cozy Lock", "emoji": "🔒", "price": 600, "kind": "consumable",
-                "desc": "Passive: blocks the next /stardust rob against you."},
+    "lock":    {"name": "Web Lock", "emoji": "🔒", "price": 600, "kind": "consumable",
+                "desc": "Passive: blocks the next /webs rob against you."},
     "lucky":   {"name": "Lucky Charm", "emoji": "🍀", "price": 2000, "kind": "consumable",
                 "desc": "Use it: your next casino win pays +25% extra."},
-    "booster": {"name": "Stardust Booster", "emoji": "⚡", "price": 1500, "kind": "consumable",
-                "desc": "Use it: your next /daily, /stardust weekly or /work pays double."},
-    "mask":    {"name": "Traveler's Scarf", "emoji": "🧣", "price": 15_000, "kind": "collectible",
+    "booster": {"name": "Web Booster", "emoji": "⚡", "price": 1500, "kind": "consumable",
+                "desc": "Use it: your next /daily, /webs weekly or /work pays double."},
+    "mask":    {"name": "Hero Mask", "emoji": "🎭", "price": 15_000, "kind": "collectible",
                 "desc": "A collectible to show off."},
-    "trophy":  {"name": "Golden Lantern", "emoji": "🏮", "price": 75_000, "kind": "collectible",
+    "trophy":  {"name": "Golden Web Trophy", "emoji": "🏆", "price": 75_000, "kind": "collectible",
                 "desc": "Pure bragging rights."},
-    "crown":   {"name": "Moonlight Crown", "emoji": "👑", "price": 250_000, "kind": "collectible",
-                "desc": "For the richest traveler under the stars."},
+    "crown":   {"name": "Spider Crown", "emoji": "👑", "price": 250_000, "kind": "collectible",
+                "desc": "For the richest hero in the web."},
 }
 
 
@@ -77,7 +77,7 @@ def parse_amount(text: str, available: int) -> Optional[int]:
 
 def new_user() -> dict:
     return {
-        "webs": START_STARDUST, "bank": 0,
+        "webs": START_WEBS, "bank": 0,
         "daily": 0.0, "streak": 0, "weekly": 0.0, "work": 0.0, "rob": 0.0,
         "inv": {}, "buffs": {},
         "stats": {"won": 0, "lost": 0, "games": 0},
@@ -87,9 +87,9 @@ def new_user() -> dict:
 # ------------------------------------------------------------------ cog
 class Economy(commands.Cog):
     ecoadmin = app_commands.Group(
-        name="ecoadmin", description="Bot owner only: manage the stardust economy", guild_only=True)
-    stardust = app_commands.Group(
-        name="stardust", description="More stardust commands: weekly, deposit, withdraw, rob, use",
+        name="ecoadmin", description="Bot owner only: manage the web economy", guild_only=True)
+    webs = app_commands.Group(
+        name="webs", description="More web-economy commands: weekly, deposit, withdraw, rob, use",
         guild_only=True)
 
     def __init__(self, bot: commands.Bot):
@@ -150,10 +150,10 @@ class Economy(commands.Cog):
                 if not isinstance(account, dict):
                     continue
                 try:
-                    value = int(account.get("webs", START_STARDUST)) + int(account.get("bank", 0))
-                    wallet = int(account.get("webs", START_STARDUST))
+                    value = int(account.get("webs", START_WEBS)) + int(account.get("bank", 0))
+                    wallet = int(account.get("webs", START_WEBS))
                 except (TypeError, ValueError):
-                    value, wallet = START_STARDUST, START_STARDUST
+                    value, wallet = START_WEBS, START_WEBS
                 current = chosen.get(str(uid))
                 # Prefer the largest wallet balance; break ties by net worth.
                 if current is None or (wallet, value) > (current[1], current[0]):
@@ -219,13 +219,13 @@ class Economy(commands.Cog):
         if profit > 0 and u["buffs"].pop("lucky", None):
             self.dirty = True
             bonus = max(1, profit // 4)
-            return profit + bonus, f"\n🍀 Lucky Charm added **+{bonus:,}** stardust!"
+            return profit + bonus, f"\n🍀 Lucky Charm added **+{bonus:,}** webs!"
         return profit, ""
 
     def _boost(self, u: dict, amount: int):
         if u["buffs"].pop("booster", None):
             self.dirty = True
-            return amount * 2, "\n⚡ Stardust Booster doubled it!"
+            return amount * 2, "\n⚡ Web Booster doubled it!"
         return amount, ""
 
     def items(self, gid: int) -> dict:
@@ -245,19 +245,19 @@ class Economy(commands.Cog):
     async def item_autocomplete(self, interaction: discord.Interaction, current: str):
         out = []
         for key, it in self.items(interaction.guild.id).items():
-            label = f"{it['emoji']} {it['name']} — {it['price']:,} stardust"
+            label = f"{it['emoji']} {it['name']} — {it['price']:,} webs"
             if current.lower() in label.lower() or current.lower() in key:
                 out.append(app_commands.Choice(name=label[:100], value=key))
         return out[:25]
 
     # ================================================================ BASICS
-    @app_commands.command(name="balance", description="Check your stardust")
+    @app_commands.command(name="balance", description="Check your webs")
     @app_commands.describe(member="Whose balance? (defaults to you)")
     @app_commands.guild_only()
     async def balance(self, interaction: discord.Interaction, member: Optional[discord.Member] = None):
         member = member or interaction.user
         if member.bot:
-            return await fail(interaction, "Bots don't have stardust. 🌙")
+            return await fail(interaction, "Bots don't have webs. 🕷️")
         gid = interaction.guild.id
         u = self.user(gid, member.id)
         board = sorted(self.data["users"].items(), key=lambda kv: self.net_worth(kv[1]), reverse=True)
@@ -269,88 +269,88 @@ class Economy(commands.Cog):
                 f"📈 **Won:** {s['won']:,}  •  📉 **Lost:** {s['lost']:,}")
         if u["buffs"]:
             desc += "\n✨ **Active:** " + ", ".join(f"{ITEMS[k]['emoji']} {ITEMS[k]['name']}" for k in u["buffs"] if k in ITEMS)
-        embed = cozy_embed(f"{member.display_name}'s Stardust", desc, LAVENDER)
+        embed = web_embed(f"{member.display_name}'s Webs", desc, BLUE)
         embed.set_thumbnail(url=member.display_avatar.url)
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="daily", description="Claim your daily stardust (streaks give bonuses!)")
+    @app_commands.command(name="daily", description="Claim your daily webs (streaks give bonuses!)")
     @app_commands.guild_only()
     async def daily(self, interaction: discord.Interaction):
         gid, uid, now = interaction.guild.id, interaction.user.id, time.time()
         u = self.user(gid, uid)
         ready = self._wait_msg(u["daily"], COOLDOWNS["daily"])
         if ready:
-            return await fail(interaction, f"Your daily stardust is still settling! Come back <t:{ready}:R>. ✨")
+            return await fail(interaction, f"Your daily web is still spinning! Come back <t:{ready}:R>. 🕸️")
         streak = u["streak"] + 1 if u["daily"] and now - u["daily"] <= 172800 else 1
         amount = DAILY_BASE + DAILY_STEP * min(streak, DAILY_MAX_STREAK)
         amount, note = self._boost(u, amount)
         u.update(daily=now, streak=streak)
         u["webs"] += amount
         self.dirty = True
-        await interaction.response.send_message(embed=cozy_embed(
-            "Daily Stardust!", f"You collected **{amount:,}** stardust {EMOJI}\n🔥 **Streak:** {streak} day(s) "
-                           f"(max bonus at {DAILY_MAX_STREAK}){note}\n💰 **Wallet:** {u['webs']:,}", LAVENDER))
+        await interaction.response.send_message(embed=web_embed(
+            "Daily Webs!", f"You collected **{amount:,}** webs {EMOJI}\n🔥 **Streak:** {streak} day(s) "
+                           f"(max bonus at {DAILY_MAX_STREAK}){note}\n💰 **Wallet:** {u['webs']:,}", BLUE))
 
-    @app_commands.command(name="work", description="Do a cozy odd job for some stardust (once an hour)")
+    @app_commands.command(name="work", description="Do a hero job for some webs (once an hour)")
     @app_commands.guild_only()
     async def work(self, interaction: discord.Interaction):
         gid, uid = interaction.guild.id, interaction.user.id
         u = self.user(gid, uid)
         ready = self._wait_msg(u["work"], COOLDOWNS["work"])
         if ready:
-            return await fail(interaction, f"You're tired from your last job. Rest until <t:{ready}:R>. 🌙")
+            return await fail(interaction, f"You're tired from your last job. Rest until <t:{ready}:R>. 🕷️")
         amount, note = self._boost(u, random.randint(*WORK_RANGE))
         u["work"] = time.time()
         u["webs"] += amount
         self.dirty = True
-        await interaction.response.send_message(embed=cozy_embed(
-            "Hard Day's Work!", f"You {random.choice(JOBS)} and earned **{amount:,}** stardust {EMOJI}{note}\n"
-                                f"💰 **Wallet:** {u['webs']:,}", LAVENDER))
+        await interaction.response.send_message(embed=web_embed(
+            "Hard Day's Work!", f"You {random.choice(JOBS)} and earned **{amount:,}** webs {EMOJI}{note}\n"
+                                f"💰 **Wallet:** {u['webs']:,}", BLUE))
 
-    @app_commands.command(name="give", description="Give some of your stardust to a friend")
-    @app_commands.describe(member="Who gets the stardust?", amount="Amount (e.g. 500, 2k, half, all)")
+    @app_commands.command(name="give", description="Give some of your webs to a friend")
+    @app_commands.describe(member="Who gets the webs?", amount="Amount (e.g. 500, 2k, half, all)")
     @app_commands.guild_only()
     async def give(self, interaction: discord.Interaction, member: discord.Member, amount: str):
         gid = interaction.guild.id
         if member.bot or member.id == interaction.user.id:
-            return await fail(interaction, "Pick a different human to give stardust to. 🌙")
+            return await fail(interaction, "Pick a different human to give webs to. 🕷️")
         value = parse_amount(amount, self.wallet(gid, interaction.user.id))
         if not value:
             return await fail(interaction, "Enter a valid amount like `500`, `2k`, `half` or `all`.")
         if not self.take(gid, interaction.user.id, value):
-            return await fail(interaction, "You don't have that many stardust in your wallet. ☁️")
+            return await fail(interaction, "You don't have that many webs in your wallet. 🕸️")
         self.add(gid, member.id, value)
-        await interaction.response.send_message(embed=cozy_embed(
-            "Stardust Shared!", f"{interaction.user.mention} gave **{value:,}** stardust {EMOJI} to {member.mention}! 🌙\n"
-                            f"💰 **Your wallet:** {self.wallet(gid, interaction.user.id):,}", LAVENDER))
+        await interaction.response.send_message(embed=web_embed(
+            "Webs Shared!", f"{interaction.user.mention} gave **{value:,}** webs {EMOJI} to {member.mention}! 🕷️\n"
+                            f"💰 **Your wallet:** {self.wallet(gid, interaction.user.id):,}", BLUE))
 
-    @app_commands.command(name="richest", description="The richest travelers across Hamsafar servers")
+    @app_commands.command(name="richest", description="The richest heroes across Spidey servers")
     @app_commands.guild_only()
     async def richest(self, interaction: discord.Interaction):
         board = sorted(self.data["users"].items(),
                        key=lambda kv: self.net_worth(kv[1]), reverse=True)[:10]
         medals = ["🥇", "🥈", "🥉"]
-        lines = [f"{medals[i] if i < 3 else f'**{i + 1}.**'} <@{uid}> — **{self.net_worth(u):,}** stardust"
+        lines = [f"{medals[i] if i < 3 else f'**{i + 1}.**'} <@{uid}> — **{self.net_worth(u):,}** webs"
                  for i, (uid, u) in enumerate(board)]
-        await interaction.response.send_message(embed=cozy_embed(
-            "Richest Across the Stars", "\n".join(lines) or "Nobody has stardust yet. ☁️", LAVENDER))
+        await interaction.response.send_message(embed=web_embed(
+            "Richest Across the Web", "\n".join(lines) or "Nobody has webs yet. 🕸️", BLUE))
 
-    # ================================================================ /stardust ...
-    @stardust.command(name="weekly", description="Claim your weekly stardust")
+    # ================================================================ /webs ...
+    @webs.command(name="weekly", description="Claim your weekly webs")
     async def weekly(self, interaction: discord.Interaction):
         gid, uid = interaction.guild.id, interaction.user.id
         u = self.user(gid, uid)
         ready = self._wait_msg(u["weekly"], COOLDOWNS["weekly"])
         if ready:
-            return await fail(interaction, f"Your weekly stardust isn't ready yet. Come back <t:{ready}:R>. ✨")
+            return await fail(interaction, f"Your weekly web isn't ready yet. Come back <t:{ready}:R>. 🕸️")
         amount, note = self._boost(u, WEEKLY_AMOUNT)
         u["weekly"] = time.time()
         u["webs"] += amount
         self.dirty = True
-        await interaction.response.send_message(embed=cozy_embed(
-            "Weekly Stardust!", f"You collected **{amount:,}** stardust {EMOJI}{note}\n💰 **Wallet:** {u['webs']:,}", LAVENDER))
+        await interaction.response.send_message(embed=web_embed(
+            "Weekly Webs!", f"You collected **{amount:,}** webs {EMOJI}{note}\n💰 **Wallet:** {u['webs']:,}", BLUE))
 
-    @stardust.command(name="deposit", description="Move stardust into your safe bank (can't be robbed)")
+    @webs.command(name="deposit", description="Move webs into your safe bank (can't be robbed)")
     @app_commands.describe(amount="Amount (e.g. 500, 2k, half, all)")
     async def deposit(self, interaction: discord.Interaction, amount: str):
         u = self.user(interaction.guild.id, interaction.user.id)
@@ -360,11 +360,11 @@ class Economy(commands.Cog):
         u["webs"] -= value
         u["bank"] += value
         self.dirty = True
-        await interaction.response.send_message(embed=cozy_embed(
-            "Deposited!", f"🏦 Stored **{value:,}** stardust.\n💰 Wallet: {u['webs']:,} • 🏦 Bank: {u['bank']:,}", LAVENDER),
+        await interaction.response.send_message(embed=web_embed(
+            "Deposited!", f"🏦 Stored **{value:,}** webs.\n💰 Wallet: {u['webs']:,} • 🏦 Bank: {u['bank']:,}", BLUE),
             ephemeral=True)
 
-    @stardust.command(name="withdraw", description="Take stardust out of your bank")
+    @webs.command(name="withdraw", description="Take webs out of your bank")
     @app_commands.describe(amount="Amount (e.g. 500, 2k, half, all)")
     async def withdraw(self, interaction: discord.Interaction, amount: str):
         u = self.user(interaction.guild.id, interaction.user.id)
@@ -374,22 +374,22 @@ class Economy(commands.Cog):
         u["bank"] -= value
         u["webs"] += value
         self.dirty = True
-        await interaction.response.send_message(embed=cozy_embed(
-            "Withdrawn!", f"💰 Took out **{value:,}** stardust.\n💰 Wallet: {u['webs']:,} • 🏦 Bank: {u['bank']:,}", LAVENDER),
+        await interaction.response.send_message(embed=web_embed(
+            "Withdrawn!", f"💰 Took out **{value:,}** webs.\n💰 Wallet: {u['webs']:,} • 🏦 Bank: {u['bank']:,}", BLUE),
             ephemeral=True)
 
-    @stardust.command(name="rob", description="Try to steal stardust from someone's wallet (risky!)")
+    @webs.command(name="rob", description="Try to steal webs from someone's wallet (risky!)")
     @app_commands.describe(member="Your target")
     async def rob(self, interaction: discord.Interaction, member: discord.Member):
         gid = interaction.guild.id
         if member.bot or member.id == interaction.user.id:
-            return await fail(interaction, "Pick a different human to rob. 🌙")
+            return await fail(interaction, "Pick a different human to rob. 🕷️")
         me, target = self.user(gid, interaction.user.id), self.user(gid, member.id)
         ready = self._wait_msg(me["rob"], COOLDOWNS["rob"])
         if ready:
             return await fail(interaction, f"The cops are watching you. Try again <t:{ready}:R>. 🚔")
         if me["webs"] < 200:
-            return await fail(interaction, "You need at least **200** stardust in your wallet to risk a robbery.")
+            return await fail(interaction, "You need at least **200** webs in your wallet to risk a robbery.")
         if target["webs"] < 100:
             return await fail(interaction, f"{member.display_name} has almost nothing in their wallet.")
 
@@ -401,29 +401,29 @@ class Economy(commands.Cog):
                 del target["inv"]["lock"]
             fine = min(me["webs"], max(50, me["webs"] // 10))
             me["webs"] -= fine
-            return await interaction.response.send_message(embed=cozy_embed(
-                "Blocked by a Cozy Lock!", f"🔒 {member.mention}'s **Cozy Lock** stopped {interaction.user.mention}!\n"
-                                          f"You dropped **{fine:,}** stardust while running away.", NIGHT))
+            return await interaction.response.send_message(embed=web_embed(
+                "Blocked by a Web Lock!", f"🔒 {member.mention}'s **Web Lock** stopped {interaction.user.mention}!\n"
+                                          f"You dropped **{fine:,}** webs while running away.", DARK))
 
         if random.random() < 0.45:
             stolen = max(1, int(target["webs"] * random.uniform(0.15, 0.35)))
             stolen = min(stolen, 25_000)
             target["webs"] -= stolen
             me["webs"] += stolen
-            await interaction.response.send_message(embed=cozy_embed(
-                "Midnight Heist!", f"🌙 {interaction.user.mention} swiped **{stolen:,}** stardust from {member.mention}!", PEACH))
+            await interaction.response.send_message(embed=web_embed(
+                "Web Heist!", f"🕷️ {interaction.user.mention} swiped **{stolen:,}** webs from {member.mention}!", RED))
         else:
             fine = min(me["webs"], max(100, int(me["webs"] * 0.15)))
             me["webs"] -= fine
             target["webs"] += fine // 2
-            await interaction.response.send_message(embed=cozy_embed(
+            await interaction.response.send_message(embed=web_embed(
                 "Caught in the Act!", f"🚔 {interaction.user.mention} got caught robbing {member.mention} and paid "
-                                      f"**{fine:,}** stardust. ({member.display_name} got {fine // 2:,} as compensation.)", NIGHT))
+                                      f"**{fine:,}** webs. ({member.display_name} got {fine // 2:,} as compensation.)", DARK))
 
-    @stardust.command(name="use", description="Activate a Lucky Charm or Stardust Booster")
+    @webs.command(name="use", description="Activate a Lucky Charm or Web Booster")
     @app_commands.describe(item="Which item?")
     @app_commands.choices(item=[app_commands.Choice(name="🍀 Lucky Charm", value="lucky"),
-                                app_commands.Choice(name="⚡ Stardust Booster", value="booster")])
+                                app_commands.Choice(name="⚡ Web Booster", value="booster")])
     async def use(self, interaction: discord.Interaction, item: app_commands.Choice[str]):
         u = self.user(interaction.guild.id, interaction.user.id)
         key = item.value
@@ -436,18 +436,18 @@ class Economy(commands.Cog):
             del u["inv"][key]
         u["buffs"][key] = True
         self.dirty = True
-        await interaction.response.send_message(embed=cozy_embed(
-            "Item Activated!", f"{item.name} is now active. {ITEMS[key]['desc']}", LAVENDER))
+        await interaction.response.send_message(embed=web_embed(
+            "Item Activated!", f"{item.name} is now active. {ITEMS[key]['desc']}", BLUE))
 
     # ================================================================ SHOP
-    @app_commands.command(name="shop", description="Browse the cozy shop")
+    @app_commands.command(name="shop", description="Browse the web shop")
     @app_commands.guild_only()
     async def shop(self, interaction: discord.Interaction):
         groups = {"consumable": [], "collectible": [], "role": []}
         for key, it in self.items(interaction.guild.id).items():
             groups.setdefault(it["kind"], []).append(
                 f"{it['emoji']} **{it['name']}** — {it['price']:,} {EMOJI}\n┗ {it['desc']}")
-        embed = cozy_embed("The Hamsafar Shop", "Buy with `/buy`. Check your stuff with `/inventory`.", LAVENDER)
+        embed = web_embed("Spidey's Web Shop", "Buy with `/buy`. Check your stuff with `/inventory`.", BLUE)
         for kind, label in (("consumable", "🧪 Boosts & tools"), ("collectible", "🏆 Collectibles"), ("role", "🎖️ Server roles")):
             if groups.get(kind):
                 embed.add_field(name=label, value="\n".join(groups[kind])[:1024], inline=False)
@@ -473,10 +473,10 @@ class Economy(commands.Cog):
                 return await fail(interaction, "That role is above mine, so I can't hand it out. Tell an admin.")
         total = it["price"] * quantity
         if not self.take(gid, uid, total):
-            return await fail(interaction, f"You need **{total:,}** stardust but only have **{self.wallet(gid, uid):,}**.")
+            return await fail(interaction, f"You need **{total:,}** webs but only have **{self.wallet(gid, uid):,}**.")
         if it["kind"] == "role":
             try:
-                await interaction.user.add_roles(role, reason="Bought in the Hamsafar shop")
+                await interaction.user.add_roles(role, reason="Bought in the Spidey web shop")
             except discord.HTTPException:
                 self.add(gid, uid, total)
                 return await fail(interaction, "I couldn't give you that role, so you were refunded.")
@@ -484,9 +484,9 @@ class Economy(commands.Cog):
             inv = self.user(gid, uid)["inv"]
             inv[item] = inv.get(item, 0) + quantity
             self.dirty = True
-        await interaction.response.send_message(embed=cozy_embed(
-            "Purchase Complete!", f"You bought **{quantity}× {it['emoji']} {it['name']}** for **{total:,}** stardust.\n"
-                                  f"💰 **Wallet:** {self.wallet(gid, uid):,}", LAVENDER))
+        await interaction.response.send_message(embed=web_embed(
+            "Purchase Complete!", f"You bought **{quantity}× {it['emoji']} {it['name']}** for **{total:,}** webs.\n"
+                                  f"💰 **Wallet:** {self.wallet(gid, uid):,}", BLUE))
 
     @buy.autocomplete("item")
     async def buy_autocomplete(self, interaction: discord.Interaction, current: str):
@@ -501,7 +501,7 @@ class Economy(commands.Cog):
         u = self.user(gid, member.id)
         items = self.items(gid)
         lines = [f"{items[k]['emoji']} **{items[k]['name']}** × {q}" for k, q in u["inv"].items() if k in items]
-        embed = cozy_embed(f"{member.display_name}'s Inventory", "\n".join(lines) or "Empty. Visit the `/shop`! 🛒", LAVENDER)
+        embed = web_embed(f"{member.display_name}'s Inventory", "\n".join(lines) or "Empty. Visit the `/shop`! 🛒", BLUE)
         if u["buffs"]:
             embed.add_field(name="✨ Active boosts",
                             value=", ".join(f"{ITEMS[k]['emoji']} {ITEMS[k]['name']}" for k in u["buffs"] if k in ITEMS))
@@ -509,30 +509,30 @@ class Economy(commands.Cog):
 
     # ================================================================ ADMIN
     async def _owner_only(self, interaction: discord.Interaction) -> bool:
-        """Stardust is shared across every server, so only Hamsafar's creator may print or delete it."""
+        """Webs are shared across every server, so only Spidey's creator may print or delete them."""
         if await self.bot.is_owner(interaction.user):
             return True
-        await fail(interaction, "`/ecoadmin` is only for Hamsafar's creator. "
-                                "This keeps the economy fair for everyone. 🌙")
+        await fail(interaction, "`/ecoadmin` is only for Spidey's creator. "
+                                "This keeps the economy fair for everyone. 🕷️")
         return False
 
-    @ecoadmin.command(name="give", description="Bot owner only: give stardust to a member")
+    @ecoadmin.command(name="give", description="Bot owner only: give webs to a member")
     async def admin_give(self, interaction: discord.Interaction, member: discord.Member,
                          amount: app_commands.Range[int, 1, 100_000_000]):
         if not await self._owner_only(interaction):
             return
         self.add(interaction.guild.id, member.id, amount)
-        await interaction.response.send_message(embed=cozy_embed(
-            "Stardust Given!", f"Gave **{amount:,}** stardust to {member.mention}.", LAVENDER))
+        await interaction.response.send_message(embed=web_embed(
+            "Webs Given!", f"Gave **{amount:,}** webs to {member.mention}.", BLUE))
 
-    @ecoadmin.command(name="take", description="Bot owner only: take stardust from a member")
+    @ecoadmin.command(name="take", description="Bot owner only: take webs from a member")
     async def admin_take(self, interaction: discord.Interaction, member: discord.Member,
                          amount: app_commands.Range[int, 1, 100_000_000]):
         if not await self._owner_only(interaction):
             return
         self.add(interaction.guild.id, member.id, -amount)
-        await interaction.response.send_message(embed=cozy_embed(
-            "Stardust Taken!", f"Took up to **{amount:,}** stardust from {member.mention}.", NIGHT))
+        await interaction.response.send_message(embed=web_embed(
+            "Webs Taken!", f"Took up to **{amount:,}** webs from {member.mention}.", DARK))
 
     @ecoadmin.command(name="reset", description="Bot owner only: reset a member's economy data")
     async def admin_reset(self, interaction: discord.Interaction, member: discord.Member):
@@ -540,11 +540,11 @@ class Economy(commands.Cog):
             return
         self.data.setdefault("users", {}).pop(str(member.id), None)
         self.dirty = True
-        await interaction.response.send_message(embed=cozy_embed(
-            "Reset!", f"{member.mention}'s economy data was wiped.", NIGHT))
+        await interaction.response.send_message(embed=web_embed(
+            "Reset!", f"{member.mention}'s economy data was wiped.", DARK))
 
     @ecoadmin.command(name="addrole", description="Bot owner only: sell a role in the shop")
-    @app_commands.describe(role="Role to sell", price="Price in stardust", description="Short description")
+    @app_commands.describe(role="Role to sell", price="Price in webs", description="Short description")
     async def admin_addrole(self, interaction: discord.Interaction, role: discord.Role,
                             price: app_commands.Range[int, 1, 100_000_000], description: Optional[str] = None):
         if not await self._owner_only(interaction):
@@ -558,8 +558,8 @@ class Economy(commands.Cog):
             "desc": (description or f"Unlocks the {role.name} role.")[:100],
         }
         self.dirty = True
-        await interaction.response.send_message(embed=cozy_embed(
-            "Role Added to Shop!", f"{role.mention} now costs **{price:,}** stardust.", LAVENDER))
+        await interaction.response.send_message(embed=web_embed(
+            "Role Added to Shop!", f"{role.mention} now costs **{price:,}** webs.", BLUE))
 
     @ecoadmin.command(name="removeitem", description="Bot owner only: remove a role from the shop")
     async def admin_removeitem(self, interaction: discord.Interaction, item: str):
@@ -568,7 +568,7 @@ class Economy(commands.Cog):
         if self._guild(interaction.guild.id)["shop"].pop(item, None) is None:
             return await fail(interaction, "That's not a custom shop item (built-in items can't be removed).")
         self.dirty = True
-        await interaction.response.send_message(embed=cozy_embed("Item Removed!", "It's gone from the shop. ☁️", NIGHT))
+        await interaction.response.send_message(embed=web_embed("Item Removed!", "It's gone from the shop. 🕸️", DARK))
 
     @admin_removeitem.autocomplete("item")
     async def removeitem_autocomplete(self, interaction: discord.Interaction, current: str):

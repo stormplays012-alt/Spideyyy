@@ -20,7 +20,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from theme import cozy_embed, PEACH, LAVENDER, NIGHT
+from theme import web_embed, RED, BLUE, DARK
 
 NEKOS = "https://nekos.best/api/v2/{}"
 WAIFU = "https://api.waifu.pics/sfw/{}"
@@ -135,7 +135,7 @@ class ReturnView(discord.ui.View):
     async def press(self, interaction: discord.Interaction):
         if interaction.user.id != self.receiver.id:
             return await interaction.response.send_message(
-                f"Only {self.receiver.display_name} can do that. Use `/{command_path(self.key)}` yourself! 🌙", ephemeral=True)
+                f"Only {self.receiver.display_name} can do that. Use `/{command_path(self.key)}` yourself! 🕷️", ephemeral=True)
         self.stop()
         for item in self.children:
             item.disabled = True
@@ -207,17 +207,17 @@ class Actions(commands.Cog):
         if target is None:
             text = f"{emoji} {author.mention} {alone}!"
         elif target.id == author.id:
-            text = f"{emoji} {author.mention} {verb} themselves... okay then. ☁️"
+            text = f"{emoji} {author.mention} {verb} themselves... okay then. 🕸️"
         elif target.id == self.bot.user.id:
-            text = f"{emoji} {author.mention} {verb} **Hamsafar**! I was not ready for that… 🌙"
+            text = f"{emoji} {author.mention} {verb} **Spidey**! My spider sense was not ready for that. 🕷️"
         else:
             text = f"{emoji} {author.mention} {verb} {target.mention}!"
-        color = PEACH if key in HOSTILE else LAVENDER if key in SOFT else NIGHT
-        embed = cozy_embed(label, text, color)
+        color = RED if key in HOSTILE else BLUE if key in SOFT else DARK
+        embed = web_embed(label, text, color)
         gif = await self.fetch_gif(key)
         if gif:
             embed.set_image(url=gif)
-            embed.set_footer(text="🌙 Hamsafar • GIFs by nekos.best")
+            embed.set_footer(text="🕸️ Spidey • GIFs by nekos.best")
         return embed
 
     # ---------- shared command logic
@@ -225,7 +225,7 @@ class Actions(commands.Cog):
         alone = ACTIONS[key][3]
         if target is None and alone is None:
             return await interaction.response.send_message(
-                embed=cozy_embed("Who's The Target?", f"Pick someone: `/{command_path(key)} @user` 🌙", NIGHT), ephemeral=True)
+                embed=web_embed("Who's The Target?", f"Pick someone: `/{command_path(key)} @user` 🕷️", DARK), ephemeral=True)
         await interaction.response.defer()          # the GIF lookup can take a moment
         embed = await self.build(key, interaction.user, target)
         view = None

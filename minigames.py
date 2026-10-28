@@ -10,11 +10,11 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from theme import cozy_embed, PEACH, LAVENDER, NIGHT
+from theme import web_embed, RED, BLUE, DARK
 from moderation import fail
 
 DATA_FILE = "minigames.json"
-REWARD_CAP_PER_DAY = 20      # how much stardust one player can earn per day from games
+REWARD_CAP_PER_DAY = 20      # how many web rewards one player can earn per day from games
 TRIVIA_REWARD = 30
 HANGMAN_REWARD = 40
 CATCH_REWARD = 25
@@ -22,26 +22,28 @@ DAILY_BASE, DAILY_STEP, DAILY_MAX_STEPS = 100, 25, 10
 
 # ------------------------------------------------------------------ trivia bank: (category, question, correct, [wrong x3])
 QUESTIONS = [
-    ("Cozy Life", "Which drink is made by steeping the leaves of the tea plant?", "Tea", ["Coffee", "Hot chocolate", "Lemonade"]),
-    ("Cozy Life", "Which of these spices is commonly added to masala chai?", "Cardamom", ["Wasabi", "Paprika", "Oregano"]),
-    ("Cozy Life", "What is the smell of rain on dry earth called?", "Petrichor", ["Aurora", "Zephyr", "Solstice"]),
-    ("Cozy Life", "What is a group of owls called?", "A parliament", ["A flock", "A herd", "A pack"]),
-    ("Cozy Life", "What do bees make from flower nectar?", "Honey", ["Jam", "Maple syrup", "Butter"]),
-    ("Cozy Life", "Which warm drink is made from cocoa?", "Hot chocolate", ["Chai", "Matcha", "Lemon tea"]),
-    ("Cozy Life", "What does the Urdu and Hindi word 'hamsafar' mean?", "Fellow traveler", ["Best friend", "Night sky", "Warm tea"]),
-    ("Cozy Life", "What is the Japanese art of paper folding called?", "Origami", ["Ikebana", "Bonsai", "Kintsugi"]),
-    ("Cozy Life", "Which craft uses two needles and yarn to make scarves and sweaters?", "Knitting", ["Welding", "Pottery", "Archery"]),
-    ("Cozy Life", "Which green powdered tea is whisked in Japanese tea ceremonies?", "Matcha", ["Chai", "Earl Grey", "Rooibos"]),
-    ("Night Sky", "What is the name of Earth's natural satellite?", "The Moon", ["Titan", "Phobos", "Europa"]),
-    ("Night Sky", "Which star is at the center of our solar system?", "The Sun", ["Sirius", "Polaris", "Betelgeuse"]),
-    ("Night Sky", "What is a bright streak of light across the night sky often called?", "A shooting star", ["A solar flare", "An aurora", "A nebula"]),
-    ("Night Sky", "Which galaxy do we live in?", "The Milky Way", ["Andromeda", "Triangulum", "Whirlpool"]),
-    ("Night Sky", "Which planet is famous for its rings?", "Saturn", ["Mars", "Mercury", "Venus"]),
-    ("Night Sky", "Roughly how many days does a full cycle of Moon phases take?", "About 29", ["About 7", "About 14", "About 60"]),
-    ("Night Sky", "Which star is known as the North Star?", "Polaris", ["Sirius", "Vega", "Rigel"]),
-    ("Night Sky", "What colorful lights dance in the sky near Earth's poles?", "Auroras", ["Rainbows", "Eclipses", "Meteor showers"]),
-    ("Night Sky", "What do we call a pattern of stars?", "A constellation", ["A nebula", "A comet", "A satellite"]),
-    ("Night Sky", "In which direction does the Sun rise?", "East", ["West", "North", "South"]),
+    ("Spiders", "How many legs does a spider have?", "8", ["6", "10", "12"]),
+    ("Spiders", "Spiders belong to which class of animals?", "Arachnids", ["Insects", "Crustaceans", "Reptiles"]),
+    ("Spiders", "Which of these is NOT an arachnid?", "Ant", ["Scorpion", "Tick", "Mite"]),
+    ("Spiders", "What do spiders use to spin their webs?", "Silk", ["Wool", "Sticky saliva", "Plant fibers"]),
+    ("Spiders", "What is the fear of spiders called?", "Arachnophobia", ["Acrophobia", "Claustrophobia", "Entomophobia"]),
+    ("Spiders", "Which spider is known for the red hourglass marking on its belly?", "Black widow", ["Wolf spider", "Jumping spider", "Orb weaver"]),
+    ("Spiders", "The Goliath birdeater is a type of what?", "Tarantula", ["Scorpion", "Centipede", "Beetle"]),
+    ("Spiders", "Which organs on a spider produce silk?", "Spinnerets", ["Fangs", "Pedipalps", "Book lungs"]),
+    ("Spiders", "Most spiders have how many eyes?", "8", ["2", "4", "10"]),
+    ("Spiders", "Which spider family is famous for its powerful jumps?", "Jumping spiders", ["Orb weavers", "Funnel-web spiders", "Cellar spiders"]),
+    ("Spiders", "What do orb-weaver spiders' webs look like?", "A round wheel", ["A funnel", "A flat sheet", "A tangled cloud"]),
+    ("Spiders", "Which spider has the longest leg span in the world?", "Giant huntsman spider", ["Black widow", "Wolf spider", "Zebra jumper"]),
+    ("Heroes", "What is Peter Parker's famous uncle's name?", "Ben", ["Tony", "Steve", "Harry"]),
+    ("Heroes", "Which city is Spider-Man's home?", "New York City", ["Gotham City", "Metropolis", "Los Angeles"]),
+    ("Heroes", "Spider-Man was co-created by Stan Lee and which artist?", "Steve Ditko", ["Jack Kirby", "Bob Kane", "Frank Miller"]),
+    ("Heroes", "Which newspaper does Peter Parker sell photos to?", "The Daily Bugle", ["The Daily Planet", "The Gotham Gazette", "The Times"]),
+    ("Heroes", "Which villain wears a green costume and rides a glider?", "Green Goblin", ["Venom", "Sandman", "Vulture"]),
+    ("Heroes", "Which Spider-Man villain has four mechanical arms?", "Doctor Octopus", ["Electro", "Lizard", "Mysterio"]),
+    ("Heroes", "What is Peter Parker's aunt's name?", "May", ["June", "April", "Mary"]),
+    ("Heroes", "In what year did Spider-Man first appear in comics?", "1962", ["1955", "1971", "1985"]),
+    ("Heroes", "Which Spider-Man villain is a man made of sand?", "Sandman", ["Rhino", "Scorpion", "Shocker"]),
+    ("Heroes", "With great power comes great…?", "Responsibility", ["Danger", "Fame", "Speed"]),
     ("Science", "Which planet is known as the Red Planet?", "Mars", ["Venus", "Jupiter", "Mercury"]),
     ("Science", "What is the chemical formula for water?", "H2O", ["CO2", "O2", "NaCl"]),
     ("Science", "What is the powerhouse of the cell?", "Mitochondria", ["Nucleus", "Ribosome", "Chloroplast"]),
@@ -74,13 +76,13 @@ QUESTIONS = [
     ("Tech", "Which company makes the PlayStation?", "Sony", ["Microsoft", "Nintendo", "Sega"]),
     ("Tech", "In chess, which piece moves in an L-shape?", "Knight", ["Bishop", "Rook", "Pawn"]),
     ("Tech", "What does HTML stand for?", "HyperText Markup Language", ["High Tech Machine Language", "Hyperlink Text Mode Language", "Home Tool Markup Language"]),
-    ("Tech", "Which programming language is Hamsafar's code written in?", "Python", ["Java", "Ruby", "Swift"]),
+    ("Tech", "Which programming language is Spidey's code written in?", "Python", ["Java", "Ruby", "Swift"]),
     ("Tech", "Who originally created Minecraft?", "Markus Persson", ["Gabe Newell", "Shigeru Miyamoto", "Hideo Kojima"]),
     ("Tech", "What does GPU stand for?", "Graphics Processing Unit", ["General Power Unit", "Game Playing Utility", "Graphical Program Unit"]),
 ]
 CATEGORIES = sorted({q[0] for q in QUESTIONS})
 
-WORDS = ["campfire", "teacup", "moonlight", "sunrise", "bookshelf", "fireplace", "starlight", "backpack", "meadow",
+WORDS = ["spider", "cobweb", "arachnid", "tarantula", "scorpion", "cocoon", "skyscraper", "superhero", "mystery",
          "galaxy", "planet", "guitar", "castle", "dragon", "rocket", "pirate", "jungle", "volcano", "whisper",
          "thunder", "diamond", "journey", "lantern", "harvest", "blanket", "compass", "bicycle", "library",
          "monster", "penguin", "rainbow", "shadow", "tornado", "unicorn", "wizard", "zeppelin", "oxygen", "cactus",
@@ -105,7 +107,7 @@ GUESS_MIN, GUESS_MAX = 1, 100
 
 async def _err(interaction: discord.Interaction, text: str):
     """Ephemeral error that works whether or not the interaction was answered yet."""
-    embed = cozy_embed("Oops, a Little Bump!", text, NIGHT)
+    embed = web_embed("Web Snagged!", text, DARK)
     if interaction.response.is_done():
         await interaction.followup.send(embed=embed, ephemeral=True)
     else:
@@ -124,8 +126,8 @@ class ChallengeView(discord.ui.View):
         self.message: Optional[discord.Message] = None
 
     def embed(self) -> discord.Embed:
-        return cozy_embed(self.title, f"{self.opponent.mention}, {self.challenger.mention} challenges you!\n"
-                                     "Press **Accept** to play. 🌙", PEACH)
+        return web_embed(self.title, f"{self.opponent.mention}, {self.challenger.mention} challenges you!\n"
+                                     "Press **Accept** to play. 🕷️", RED)
 
     @discord.ui.button(label="Accept", emoji="✅", style=discord.ButtonStyle.success)
     async def accept(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -139,19 +141,19 @@ class ChallengeView(discord.ui.View):
     @discord.ui.button(label="Decline", emoji="✖️", style=discord.ButtonStyle.danger)
     async def decline(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id not in (self.challenger.id, self.opponent.id):
-            return await _err(interaction, "This challenge isn't for you. 🌙")
+            return await _err(interaction, "This challenge isn't for you. 🕷️")
         self.stop()
         for item in self.children:
             item.disabled = True
         await interaction.response.edit_message(
-            embed=cozy_embed(self.title, f"{interaction.user.mention} declined the challenge. ☁️", NIGHT), view=self)
+            embed=web_embed(self.title, f"{interaction.user.mention} declined the challenge. 🕸️", DARK), view=self)
 
     async def on_timeout(self):
         for item in self.children:
             item.disabled = True
         if self.message is not None:
             try:
-                await self.message.edit(embed=cozy_embed(self.title, "Nobody answered the challenge. ☁️", NIGHT), view=self)
+                await self.message.edit(embed=web_embed(self.title, "Nobody answered the challenge. 🕸️", DARK), view=self)
             except discord.HTTPException:
                 pass
 
@@ -178,9 +180,9 @@ class TriviaView(discord.ui.View):
             await self.answer(interaction, i)
         return callback
 
-    def embed(self, status: str = "", color: int = PEACH) -> discord.Embed:
+    def embed(self, status: str = "", color: int = RED) -> discord.Embed:
         who = f"{self.only_user.mention}, this one's for you!" if self.only_user else "Anyone can answer. First correct answer wins!"
-        embed = cozy_embed(f"Trivia • {self.category}", f"**{self.text}**\n\n{who}", color)
+        embed = web_embed(f"Trivia • {self.category}", f"**{self.text}**\n\n{who}", color)
         if status:
             embed.add_field(name="Result", value=status, inline=False)
         return embed
@@ -189,16 +191,16 @@ class TriviaView(discord.ui.View):
         if self.finished:
             return await _err(interaction, "This question is already over.")
         if self.only_user and interaction.user.id != self.only_user.id:
-            return await _err(interaction, "This question isn't yours. Start your own with `/game trivia`. 🌙")
+            return await _err(interaction, "This question isn't yours. Start your own with `/game trivia`. 🕷️")
         if interaction.user.id in self.answered:
-            return await _err(interaction, "You already answered this one! ☁️")
+            return await _err(interaction, "You already answered this one! 🕸️")
         self.answered[interaction.user.id] = i
         if i == self.correct_idx:
             return await self.finish(interaction, winner=interaction.user)
         if self.only_user:
             return await self.finish(interaction, winner=None)
         await interaction.response.send_message(
-            embed=cozy_embed("Wrong!", "Nope! You're out for this question. 🌙", NIGHT), ephemeral=True)
+            embed=web_embed("Wrong!", "Nope! You're out for this question. 🕷️", DARK), ephemeral=True)
 
     async def finish(self, interaction: Optional[discord.Interaction], winner, timed_out: bool = False):
         if self.finished:
@@ -218,14 +220,14 @@ class TriviaView(discord.ui.View):
                 reward_text = self.cog.finish_daily(self.guild_id, winner.id, True)
             else:
                 got = self.cog.reward(self.guild_id, winner.id, TRIVIA_REWARD)
-                reward_text = f"+{got} stardust ✨" if got else "(daily stardust limit reached)"
-            status, color = f"✅ {winner.mention} got it! The answer was **{answer}**.\n{reward_text}", LAVENDER
+                reward_text = f"+{got} webs 🕸️" if got else "(daily web-reward limit reached)"
+            status, color = f"✅ {winner.mention} got it! The answer was **{answer}**.\n{reward_text}", BLUE
         else:
             extra = ""
             if self.daily_info is not None:
                 extra = "\n" + self.cog.finish_daily(self.guild_id, self.only_user.id, False)
             why = "⏰ Time's up!" if timed_out else "❌ Wrong answer!"
-            status, color = f"{why} The answer was **{answer}**.{extra}", NIGHT
+            status, color = f"{why} The answer was **{answer}**.{extra}", DARK
         embed = self.embed(status, color)
         if interaction is not None and not interaction.response.is_done():
             await interaction.response.edit_message(embed=embed, view=self)
@@ -266,14 +268,14 @@ class HangmanView(discord.ui.View):
     def masked(self) -> str:
         return " ".join(c if c in self.letters else "_" for c in self.word)
 
-    def embed(self, status: str = "", color: int = PEACH, reveal: bool = False) -> discord.Embed:
+    def embed(self, status: str = "", color: int = RED, reveal: bool = False) -> discord.Embed:
         desc = (f"{HANGMAN_STAGES[min(self.mistakes, MAX_MISTAKES)]}\n"
                 f"# `{' '.join(self.word) if reveal else self.masked()}`\n"
                 f"❌ **Wrong letters:** {' '.join(self.wrong_letters) or 'none'}\n"
                 f"💬 **Wrong words:** {', '.join(self.wrong_words) or 'none'}\n"
                 f"❤️ **Mistakes left:** {MAX_MISTAKES - self.mistakes}")
-        embed = cozy_embed("Hangman", desc, color)
-        embed.set_footer(text=f"Anyone can guess! Started by {self.starter.display_name} • 🌙 Hamsafar")
+        embed = web_embed("Hangman", desc, color)
+        embed.set_footer(text=f"Anyone can guess! Started by {self.starter.display_name} • 🕸️ Spidey")
         if status:
             embed.add_field(name="Result", value=status, inline=False)
         return embed
@@ -289,10 +291,10 @@ class HangmanView(discord.ui.View):
         if winner is not None:
             got = self.cog.reward(self.guild_id, winner.id, HANGMAN_REWARD)
             status = (f"🎉 {winner.mention} solved it! The word was **{self.word}**.\n"
-                      + (f"+{got} stardust ✨" if got else "(daily stardust limit reached)"))
-            embed = self.embed(status, LAVENDER, reveal=True)
+                      + (f"+{got} webs 🕸️" if got else "(daily web-reward limit reached)"))
+            embed = self.embed(status, BLUE, reveal=True)
         else:
-            embed = self.embed(f"💀 Out of mistakes! The word was **{self.word}**.", NIGHT, reveal=True)
+            embed = self.embed(f"💀 Out of mistakes! The word was **{self.word}**.", DARK, reveal=True)
         if interaction is not None and not interaction.response.is_done():
             await interaction.response.edit_message(embed=embed, view=self)
         elif self.message is not None:
@@ -305,7 +307,7 @@ class HangmanView(discord.ui.View):
         if self.finished:
             return await _err(interaction, "This game is already over.")
         if not guess.isalpha():
-            return await _err(interaction, "Letters only, please. 🌙")
+            return await _err(interaction, "Letters only, please. 🕷️")
         if len(guess) == 1:
             if guess in self.letters or guess in self.wrong_letters:
                 return await _err(interaction, f"`{guess}` was already guessed.")
@@ -335,7 +337,7 @@ class HangmanView(discord.ui.View):
     @discord.ui.button(label="Give up", emoji="🏳️", style=discord.ButtonStyle.secondary)
     async def giveup(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.id != self.starter.id:
-            return await _err(interaction, "Only the person who started the game can give up. 🌙")
+            return await _err(interaction, "Only the person who started the game can give up. 🕷️")
         await self.end(interaction, None)
 
 
@@ -387,12 +389,12 @@ class TicTacToeView(discord.ui.View):
         for i in range(9):
             self.add_item(TTTButton(i))
 
-    def embed(self, status: str = "", color: int = PEACH) -> discord.Embed:
+    def embed(self, status: str = "", color: int = RED) -> discord.Embed:
         p1, p2 = self.players
         head = f"❌ {p1.mention}  vs  ⭕ {p2.mention}"
         if not status:
             status = f"It's {self.players[self.turn].mention}'s turn ({self.MARKS[self.turn]})."
-        return cozy_embed("Tic-Tac-Toe", f"{head}\n\n{status}", color)
+        return web_embed("Tic-Tac-Toe", f"{head}\n\n{status}", color)
 
     def _place(self, i: int):
         mark = self.MARKS[self.turn]
@@ -413,11 +415,11 @@ class TicTacToeView(discord.ui.View):
         if winner:
             self._end()
             who = self.players[self.MARKS.index(winner)]
-            await interaction.response.edit_message(embed=self.embed(f"🎉 {who.mention} wins!", LAVENDER), view=self)
+            await interaction.response.edit_message(embed=self.embed(f"🎉 {who.mention} wins!", BLUE), view=self)
             return True
         if all(self.board):
             self._end()
-            await interaction.response.edit_message(embed=self.embed("🤝 It's a draw!", NIGHT), view=self)
+            await interaction.response.edit_message(embed=self.embed("🤝 It's a draw!", DARK), view=self)
             return True
         return False
 
@@ -425,7 +427,7 @@ class TicTacToeView(discord.ui.View):
         if self.finished or self.board[i]:
             return await interaction.response.defer()
         if interaction.user.id != self.players[self.turn].id:
-            return await _err(interaction, "It's not your turn! 🌙")
+            return await _err(interaction, "It's not your turn! 🕷️")
         self._place(i)
         if await self._after_move(interaction):
             return
@@ -439,7 +441,7 @@ class TicTacToeView(discord.ui.View):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id not in (self.players[0].id, self.players[1].id):
-            await _err(interaction, "You're not in this game. Start your own with `/game tictactoe`. 🌙")
+            await _err(interaction, "You're not in this game. Start your own with `/game tictactoe`. 🕷️")
             return False
         return True
 
@@ -449,7 +451,7 @@ class TicTacToeView(discord.ui.View):
         self._end()
         if self.message is not None:
             try:
-                await self.message.edit(embed=self.embed("⏰ The game timed out.", NIGHT), view=self)
+                await self.message.edit(embed=self.embed("⏰ The game timed out.", DARK), view=self)
             except discord.HTTPException:
                 pass
 
@@ -498,11 +500,11 @@ class Connect4View(discord.ui.View):
         rows = ["".join(C4_EMOJI[v] for v in row) for row in self.grid]
         return header + "\n" + "\n".join(rows)
 
-    def embed(self, status: str = "", color: int = PEACH) -> discord.Embed:
+    def embed(self, status: str = "", color: int = RED) -> discord.Embed:
         p1, p2 = self.players
         if not status:
             status = f"It's {self.players[self.turn].mention}'s turn {C4_EMOJI[self.turn + 1]}"
-        return cozy_embed("Connect Four", f"🔴 {p1.mention}  vs  🟡 {p2.mention}\n\n{self.render()}\n\n{status}", color)
+        return web_embed("Connect Four", f"🔴 {p1.mention}  vs  🟡 {p2.mention}\n\n{self.render()}\n\n{status}", color)
 
     def _end(self):
         self.finished = True
@@ -514,7 +516,7 @@ class Connect4View(discord.ui.View):
         if self.finished:
             return await interaction.response.defer()
         if interaction.user.id != self.players[self.turn].id:
-            return await _err(interaction, "It's not your turn! 🌙")
+            return await _err(interaction, "It's not your turn! 🕷️")
         row = next((r for r in range(C4_ROWS - 1, -1, -1) if self.grid[r][col] == 0), None)
         if row is None:
             return await _err(interaction, "That column is full. Pick another one.")
@@ -523,10 +525,10 @@ class Connect4View(discord.ui.View):
         if c4_wins(self.grid, row, col, player):
             self._end()
             return await interaction.response.edit_message(
-                embed=self.embed(f"🎉 {self.players[self.turn].mention} connected four!", LAVENDER), view=self)
+                embed=self.embed(f"🎉 {self.players[self.turn].mention} connected four!", BLUE), view=self)
         if all(self.grid[0][c] != 0 for c in range(C4_COLS)):
             self._end()
-            return await interaction.response.edit_message(embed=self.embed("🤝 The board is full. It's a draw!", NIGHT), view=self)
+            return await interaction.response.edit_message(embed=self.embed("🤝 The board is full. It's a draw!", DARK), view=self)
         for b in self.children:
             b.disabled = self.grid[0][b.col] != 0
         self.turn = 1 - self.turn
@@ -534,7 +536,7 @@ class Connect4View(discord.ui.View):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id not in (self.players[0].id, self.players[1].id):
-            await _err(interaction, "You're not in this game. Start your own with `/game connect4`. 🌙")
+            await _err(interaction, "You're not in this game. Start your own with `/game connect4`. 🕷️")
             return False
         return True
 
@@ -544,7 +546,7 @@ class Connect4View(discord.ui.View):
         self._end()
         if self.message is not None:
             try:
-                await self.message.edit(embed=self.embed("⏰ The game timed out.", NIGHT), view=self)
+                await self.message.edit(embed=self.embed("⏰ The game timed out.", DARK), view=self)
             except discord.HTTPException:
                 pass
 
@@ -569,16 +571,16 @@ class RPSView(discord.ui.View):
         self.finished = False
         self.message: Optional[discord.Message] = None
 
-    def embed(self, status: str = "", color: int = PEACH) -> discord.Embed:
+    def embed(self, status: str = "", color: int = RED) -> discord.Embed:
         p1, p2 = self.players
         if not status:
             waiting = [p.mention for p in self.players if p.id not in self.choices and not (self.vs_bot and p is p2)]
             status = "Pick your move below! 👇" + (f"\nWaiting for: {', '.join(waiting)}" if waiting else "")
-        return cozy_embed("Rock Paper Scissors", f"{p1.mention}  vs  {p2.mention}\n\n{status}", color)
+        return web_embed("Rock Paper Scissors", f"{p1.mention}  vs  {p2.mention}\n\n{status}", color)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id not in (self.players[0].id, self.players[1].id):
-            await _err(interaction, "You're not in this game. Start your own with `/game rps`. 🌙")
+            await _err(interaction, "You're not in this game. Start your own with `/game rps`. 🕷️")
             return False
         return True
 
@@ -586,7 +588,7 @@ class RPSView(discord.ui.View):
         if self.finished:
             return await _err(interaction, "This game is already over.")
         if interaction.user.id in self.choices:
-            return await _err(interaction, "You already picked! ☁️")
+            return await _err(interaction, "You already picked! 🕸️")
         self.choices[interaction.user.id] = move
         p1, p2 = self.players
         if self.vs_bot:
@@ -594,7 +596,7 @@ class RPSView(discord.ui.View):
         if p1.id in self.choices and p2.id in self.choices:
             return await self.resolve(interaction)
         await interaction.response.send_message(
-            embed=cozy_embed("Locked In!", f"You chose {RPS_EMOJI[move]} **{move}**. Waiting for your opponent…", LAVENDER),
+            embed=web_embed("Locked In!", f"You chose {RPS_EMOJI[move]} **{move}**. Waiting for your opponent…", BLUE),
             ephemeral=True)
         if self.message is not None:
             try:
@@ -612,7 +614,7 @@ class RPSView(discord.ui.View):
         outcome = rps_result(m1, m2)
         verdict = "🤝 It's a tie!" if outcome == 0 else f"🎉 {self.players[outcome - 1].mention} wins!"
         text = f"{p1.mention}: {RPS_EMOJI[m1]} **{m1}**\n{p2.mention}: {RPS_EMOJI[m2]} **{m2}**\n\n{verdict}"
-        embed = self.embed(text, NIGHT if outcome == 0 else LAVENDER)
+        embed = self.embed(text, DARK if outcome == 0 else BLUE)
         if interaction is not None and not interaction.response.is_done():
             await interaction.response.edit_message(embed=embed, view=self)
         elif self.message is not None:
@@ -626,7 +628,7 @@ class RPSView(discord.ui.View):
             item.disabled = True
         if self.message is not None:
             try:
-                await self.message.edit(embed=self.embed("⏰ Someone didn't pick in time. No result.", NIGHT), view=self)
+                await self.message.edit(embed=self.embed("⏰ Someone didn't pick in time. No result.", DARK), view=self)
             except discord.HTTPException:
                 pass
 
@@ -643,7 +645,7 @@ class RPSView(discord.ui.View):
         await self.choose(interaction, "scissors")
 
 
-# ------------------------------------------------------------------ catch the shooting star
+# ------------------------------------------------------------------ catch the villain
 class CatchView(discord.ui.View):
     def __init__(self, cog: "MiniGames", guild_id: int):
         super().__init__(timeout=None)
@@ -661,13 +663,13 @@ class CatchView(discord.ui.View):
         button.disabled = True
         button.label, button.style = "Caught!", discord.ButtonStyle.success
         self.stop()
-        text = (f"🎉 {interaction.user.mention} caught the shooting star in **{elapsed:.2f}s**!\n"
-                + (f"+{got} stardust ✨" if got else "(daily stardust limit reached)"))
-        await interaction.response.edit_message(embed=cozy_embed("Wish Caught!", text, LAVENDER), view=self)
+        text = (f"🎉 {interaction.user.mention} caught the villain in **{elapsed:.2f}s**!\n"
+                + (f"+{got} webs 🕸️" if got else "(daily web-reward limit reached)"))
+        await interaction.response.edit_message(embed=web_embed("Villain Caught!", text, BLUE), view=self)
 
 
 # ------------------------------------------------------------------ number guessing (/guess)
-class GuessModal(discord.ui.Modal, title="Make your guess 🌙"):
+class GuessModal(discord.ui.Modal, title="Make your guess 🕷️"):
     number = discord.ui.TextInput(
         label=f"Pick a number from {GUESS_MIN} to {GUESS_MAX}",
         placeholder="e.g. 50", min_length=1, max_length=3,
@@ -695,11 +697,11 @@ class GuessGame(discord.ui.View):
     # ---------- embeds
     def build_embed(self, note: str = "") -> discord.Embed:
         desc = (f"{self.player.mention}, I'm thinking of a number between "
-                f"**{GUESS_MIN}** and **{GUESS_MAX}**. 🌙\n"
-                "Press **Guess** and try to catch it before it slips away! ✨")
+                f"**{GUESS_MIN}** and **{GUESS_MAX}**. 🕷️\n"
+                "Press **Guess** and try to catch it in my web! 🕸️")
         if note:
             desc += f"\n\n{note}"
-        embed = cozy_embed("Number Guessing Game", desc, PEACH)
+        embed = web_embed("Number Guessing Web", desc, RED)
         if self.guesses:
             lines = [f"**{n}** — {hint}" for n, hint in self.guesses[-15:]]
             embed.add_field(name=f"{self.player.display_name}'s guesses ({len(self.guesses)})",
@@ -711,16 +713,16 @@ class GuessGame(discord.ui.View):
     def end_embed(self, won: bool, gave_up: bool = False, timed_out: bool = False) -> discord.Embed:
         tries = len(self.guesses)
         if won:
-            title, color = "You Caught It! 🎉", LAVENDER
+            title, color = "You Caught It! 🎉", BLUE
             desc = (f"{self.player.mention} guessed my number **{self.secret}** "
-                    f"in **{tries}** attempt{'s' if tries != 1 else ''}! 🌙")
+                    f"in **{tries}** attempt{'s' if tries != 1 else ''}! 🕷️")
         elif gave_up:
-            title, color = "Game Abandoned!", NIGHT
-            desc = f"{self.player.mention} gave up. My number was **{self.secret}**. ☁️"
+            title, color = "Web Abandoned!", DARK
+            desc = f"{self.player.mention} gave up. My number was **{self.secret}**. 🕸️"
         else:
-            title, color = "Time's Up!", NIGHT
-            desc = f"Time ran out. My number was **{self.secret}**. ☁️"
-        embed = cozy_embed(title, desc, color)
+            title, color = "Time's Up!", DARK
+            desc = f"The web went quiet. My number was **{self.secret}**. 🕸️"
+        embed = web_embed(title, desc, color)
         if self.guesses:
             lines = [f"**{n}** — {hint}" for n, hint in self.guesses[-15:]]
             embed.add_field(name=f"Guesses ({len(self.guesses)})", value="\n".join(lines), inline=False)
@@ -735,7 +737,7 @@ class GuessGame(discord.ui.View):
             return await _err(interaction, f"Enter a whole number from {GUESS_MIN} to {GUESS_MAX}.")
         n = int(raw)
         if any(n == g[0] for g in self.guesses):
-            return await _err(interaction, f"You already guessed **{n}**. Try a different number! 🌙")
+            return await _err(interaction, f"You already guessed **{n}**. Try a different number! 🕷️")
 
         if n == self.secret:
             self.guesses.append((n, "✅ Correct!"))
@@ -778,14 +780,14 @@ class GuessGame(discord.ui.View):
             await _err(
                 interaction,
                 f"This game belongs to {self.player.mention}. "
-                "Start your own with `/guess`! 🌙"
+                "Start your own with `/guess`! 🕷️"
             )
             return False
         return True
 
     @discord.ui.button(
         label="Guess",
-        emoji="✨",
+        emoji="🕸️",
         style=discord.ButtonStyle.secondary
     )
     async def guess_button(
@@ -835,7 +837,7 @@ class MiniGames(commands.Cog):
             json.dump(self.data, f)
         os.replace(tmp, DATA_FILE)
 
-    # ---------- stardust rewards (with a daily cap so it can't be farmed)
+    # ---------- web rewards (with a daily cap so it can't be farmed)
     def reward(self, guild_id: int, user_id: int, amount: int) -> int:
         eco = self.bot.get_cog("Economy")
         if eco is None:
@@ -863,10 +865,10 @@ class MiniGames(commands.Cog):
         if eco is not None:
             eco.add(guild_id, user_id, amount)
         self.save()
-        return f"🔥 **Streak: {d['streak']} day(s)**\n+{amount} stardust ✨"
+        return f"🔥 **Streak: {d['streak']} day(s)**\n+{amount} webs 🕸️"
 
     # ================================================================ TRIVIA
-    @game.command(name="trivia", description="A trivia question. First correct answer wins stardust!")
+    @game.command(name="trivia", description="A trivia question. First correct answer wins webs!")
     @app_commands.describe(category="Pick a category (or leave empty for random)")
     @app_commands.choices(category=[app_commands.Choice(name=c, value=c) for c in CATEGORIES])
     @app_commands.checks.cooldown(1, 5.0)
@@ -880,7 +882,7 @@ class MiniGames(commands.Cog):
         except asyncio.TimeoutError:
             await view.finish(None, None, timed_out=True)
 
-    @game.command(name="daily", description="Today's quiz question. Keep your streak for bonus stardust!")
+    @game.command(name="daily", description="Today's quiz question. Keep your streak for bonus webs!")
     async def daily(self, interaction: discord.Interaction):
         uid = str(interaction.user.id)
         d = self.data["daily"].setdefault(uid, {"day": "", "streak": 0, "prev": ""})
@@ -903,7 +905,7 @@ class MiniGames(commands.Cog):
     async def hangman(self, interaction: discord.Interaction):
         cid = interaction.channel.id
         if cid in self.hangman_channels:
-            return await _err(interaction, "There's already a hangman game running in this channel! 🌙")
+            return await _err(interaction, "There's already a hangman game running in this channel! 🕷️")
         view = HangmanView(self, interaction.user, cid, interaction.guild.id)
         self.hangman_channels.add(cid)
         try:
@@ -915,13 +917,13 @@ class MiniGames(commands.Cog):
     # ================================================================ TIC-TAC-TOE / CONNECT 4 / RPS
     async def _challenge(self, interaction, opponent: discord.Member, title: str, builder):
         if opponent.bot or opponent.id == interaction.user.id:
-            return await _err(interaction, "Pick a different human to play against. 🌙")
+            return await _err(interaction, "Pick a different human to play against. 🕷️")
         view = ChallengeView(interaction.user, opponent, title, builder)
         await interaction.response.send_message(content=opponent.mention, embed=view.embed(), view=view)
         view.message = await interaction.original_response()
 
-    @game.command(name="tictactoe", description="Play tic-tac-toe against a friend (or Hamsafar)")
-    @app_commands.describe(opponent="Who do you want to play? (leave empty to play Hamsafar)")
+    @game.command(name="tictactoe", description="Play tic-tac-toe against a friend (or Spidey)")
+    @app_commands.describe(opponent="Who do you want to play? (leave empty to play Spidey)")
     async def tictactoe(self, interaction: discord.Interaction, opponent: Optional[discord.Member] = None):
         if opponent is None or opponent.id == self.bot.user.id:
             game = TicTacToeView(interaction.user, self.bot.user, vs_bot=True)
@@ -937,8 +939,8 @@ class MiniGames(commands.Cog):
         await self._challenge(interaction, opponent, "Connect Four",
                               lambda: Connect4View(interaction.user, opponent))
 
-    @game.command(name="rps", description="Rock paper scissors against a friend (or Hamsafar)")
-    @app_commands.describe(opponent="Who do you want to play? (leave empty to play Hamsafar)")
+    @game.command(name="rps", description="Rock paper scissors against a friend (or Spidey)")
+    @app_commands.describe(opponent="Who do you want to play? (leave empty to play Spidey)")
     async def rps(self, interaction: discord.Interaction, opponent: Optional[discord.Member] = None):
         if opponent is None or opponent.id == self.bot.user.id:
             game = RPSView(interaction.user, self.bot.user, vs_bot=True)
@@ -953,7 +955,7 @@ class MiniGames(commands.Cog):
     @app_commands.guild_only()
     async def guess(self, interaction: discord.Interaction):
         if interaction.user.id in self.active:
-            return await _err(interaction, "You already have a game running! Finish it or press **Give up**. 🌙")
+            return await _err(interaction, "You already have a game running! Finish it or press **Give up**. 🕷️")
         game = GuessGame(self, interaction.user)
         self.active.add(interaction.user.id)
         try:
@@ -963,24 +965,24 @@ class MiniGames(commands.Cog):
             self.active.discard(interaction.user.id)
 
     # ================================================================ CATCH
-    @game.command(name="catch", description="A shooting star appears! First to press the button catches it")
+    @game.command(name="catch", description="A villain appears! First to press the button catches it")
     @app_commands.checks.cooldown(1, 10.0)
     async def catch(self, interaction: discord.Interaction):
         view = CatchView(self, interaction.guild.id)
-        await interaction.response.send_message(embed=cozy_embed(
-            "Shooting Star!", "A shooting star is about to cross the sky… get ready to catch it! 🌠", PEACH), view=view)
+        await interaction.response.send_message(embed=web_embed(
+            "Villain Alert!", "A villain is sneaking through the web… get ready! 👀", RED), view=view)
         message = await interaction.original_response()
         await asyncio.sleep(random.uniform(2, 5))
-        view.catch.disabled, view.catch.label, view.catch.emoji = False, "Catch!", "🌠"
+        view.catch.disabled, view.catch.label, view.catch.emoji = False, "Catch!", "🕷️"
         view.catch.style = discord.ButtonStyle.danger
         view.ready_at = time.monotonic()
-        await message.edit(embed=cozy_embed("There It Is!", "**NOW!** Press the button! ⚡", PEACH), view=view)
+        await message.edit(embed=web_embed("There It Is!", "**NOW!** Press the button! ⚡", RED), view=view)
         try:
             await asyncio.wait_for(view.wait(), timeout=15)
         except asyncio.TimeoutError:
             view.catch.disabled, view.catch.label = True, "Escaped…"
             view.stop()
-            await message.edit(embed=cozy_embed("It Got Away!", "The star slipped away… nobody was fast enough. 🌙", NIGHT), view=view)
+            await message.edit(embed=web_embed("It Got Away!", "Nobody was fast enough. 🕸️", DARK), view=view)
 
 
 async def setup(bot: commands.Bot):

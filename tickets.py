@@ -10,7 +10,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from theme import cozy_embed, PEACH, LAVENDER, NIGHT
+from theme import web_embed, RED, BLUE, DARK
 from moderation import fail
 
 DATA_FILE = "tickets.json"
@@ -126,7 +126,7 @@ class TicketControls(discord.ui.View):
         if ticket is None:
             return await fail(interaction, "This isn't an active ticket.")
         if not (interaction.user.id == ticket["opener"] or cog.is_staff(interaction.user, ticket)):
-            return await fail(interaction, "Only the ticket owner or staff can close this ticket. 🌙")
+            return await fail(interaction, "Only the ticket owner or staff can close this ticket. 🕷️")
         await interaction.response.send_modal(CloseModal())
 
 
@@ -241,15 +241,15 @@ class Tickets(commands.Cog):
         }
         self.save()
 
-        intro = str(button_cfg.get("ticket_message", panel.get("ticket_message")) or "A staff member will be with you soon. 🌙")[:4000]
-        embed = cozy_embed(f"Ticket #{number}", f"**Subject:** {subject}\n" + (f"{details}\n" if details else "")
-                          + f"\n{intro}", LAVENDER)
+        intro = str(button_cfg.get("ticket_message", panel.get("ticket_message")) or "A staff member will be with you soon. 🕷️")[:4000]
+        embed = web_embed(f"Ticket #{number}", f"**Subject:** {subject}\n" + (f"{details}\n" if details else "")
+                          + f"\n{intro}", BLUE)
         embed.set_author(name=user.display_name, icon_url=user.display_avatar.url)
         mentions = " ".join([user.mention] + [r.mention for r in staff_roles])
         await channel.send(content=mentions, embed=embed, view=TicketControls(),
                            allowed_mentions=discord.AllowedMentions(users=True, roles=True))
-        await interaction.followup.send(embed=cozy_embed(
-            "Ticket Created!", f"Your ticket is ready: {channel.mention} 🎫", LAVENDER), ephemeral=True)
+        await interaction.followup.send(embed=web_embed(
+            "Ticket Created!", f"Your ticket is ready: {channel.mention} 🎫", BLUE), ephemeral=True)
 
     # ================================================================ CLAIM / CLOSE
     async def claim_ticket(self, interaction: discord.Interaction):
@@ -257,13 +257,13 @@ class Tickets(commands.Cog):
         if ticket is None:
             return await fail(interaction, "This isn't an active ticket.")
         if not self.is_staff(interaction.user, ticket):
-            return await fail(interaction, "Only this ticket's support staff can claim it. 🌙")
+            return await fail(interaction, "Only this ticket's support staff can claim it. 🕷️")
         if ticket["claimed_by"]:
             return await fail(interaction, f"This ticket is already claimed by <@{ticket['claimed_by']}>.")
         ticket["claimed_by"] = interaction.user.id
         self.save()
-        await interaction.response.send_message(embed=cozy_embed(
-            "Ticket Claimed!", f"{interaction.user.mention} is handling this ticket. 🙋", LAVENDER))
+        await interaction.response.send_message(embed=web_embed(
+            "Ticket Claimed!", f"{interaction.user.mention} is handling this ticket. 🙋", BLUE))
 
     async def build_transcript(self, channel: discord.TextChannel) -> str:
         lines = []
@@ -282,10 +282,10 @@ class Tickets(commands.Cog):
         if ticket is None:
             return await fail(interaction, "This isn't an active ticket.")
         if not (interaction.user.id == ticket["opener"] or self.is_staff(interaction.user, ticket)):
-            return await fail(interaction, "Only the ticket owner or staff can close this ticket. 🌙")
+            return await fail(interaction, "Only the ticket owner or staff can close this ticket. 🕷️")
 
-        await interaction.response.send_message(embed=cozy_embed(
-            "Closing Ticket…", f"Saving the transcript. This channel will be deleted in 5 seconds.\n**Reason:** {reason}", NIGHT))
+        await interaction.response.send_message(embed=web_embed(
+            "Closing Ticket…", f"Saving the transcript. This channel will be deleted in 5 seconds.\n**Reason:** {reason}", DARK))
         transcript = await self.build_transcript(channel)
         filename = f"ticket-{ticket['number']:04d}.txt"
         guild = interaction.guild
@@ -299,14 +299,14 @@ class Tickets(commands.Cog):
         log = guild.get_channel(int(log_id)) if log_id else None
         if log:
             try:
-                await log.send(embed=cozy_embed("Ticket Closed", summary, NIGHT),
+                await log.send(embed=web_embed("Ticket Closed", summary, DARK),
                                file=discord.File(io.BytesIO(transcript.encode("utf-8")), filename=filename))
             except discord.HTTPException:
                 pass
         opener = guild.get_member(ticket["opener"])
         if opener:
             try:
-                await opener.send(embed=cozy_embed("Your Ticket Was Closed", summary, NIGHT),
+                await opener.send(embed=web_embed("Your Ticket Was Closed", summary, DARK),
                                   file=discord.File(io.BytesIO(transcript.encode("utf-8")), filename=filename))
             except discord.HTTPException:
                 pass
@@ -335,10 +335,10 @@ class Tickets(commands.Cog):
         c["log_channel"] = log_channel.id if log_channel else None
         c["max_open"] = max_open
         self.save()
-        await interaction.response.send_message(embed=cozy_embed(
+        await interaction.response.send_message(embed=web_embed(
             "Tickets Ready!", f"📁 **Category:** {category.mention}\n🎧 **Support role:** {support_role.mention}\n"
                               f"📜 **Transcripts:** {log_channel.mention if log_channel else 'not saved to a channel'}\n"
-                              f"🎫 **Max open per member:** {max_open}\n\nNext: `/ticket panel` to post the Open Ticket button.", LAVENDER))
+                              f"🎫 **Max open per member:** {max_open}\n\nNext: `/ticket panel` to post the Open Ticket button.", BLUE))
 
     @ticket.command(name="panel", description="Post the Open Ticket button")
     @app_commands.describe(channel="Where to post the panel")
@@ -346,13 +346,13 @@ class Tickets(commands.Cog):
     async def panel(self, interaction: discord.Interaction, channel: discord.TextChannel):
         if not self.cfg(interaction.guild.id)["category"]:
             return await fail(interaction, "Run `/ticket setup` first.")
-        embed = cozy_embed("Need Help?", "Press the button below to open a private ticket with our staff. 🌙", PEACH)
+        embed = web_embed("Need Help?", "Press the button below to open a private ticket with our staff. 🕷️", RED)
         try:
             await channel.send(embed=embed, view=TicketPanel())
         except discord.HTTPException:
             return await fail(interaction, f"I can't post in {channel.mention}. Check my permissions there.")
-        await interaction.response.send_message(embed=cozy_embed(
-            "Panel Posted!", f"The Open Ticket button is now in {channel.mention}. 🎫", LAVENDER), ephemeral=True)
+        await interaction.response.send_message(embed=web_embed(
+            "Panel Posted!", f"The Open Ticket button is now in {channel.mention}. 🎫", BLUE), ephemeral=True)
 
     @ticket.command(name="supportrole", description="Add or remove roles that can see tickets")
     @app_commands.describe(action="add / remove / list", role="The role (not needed for list)")
@@ -363,7 +363,7 @@ class Tickets(commands.Cog):
         ids = self.cfg(interaction.guild.id)["support_roles"]
         if action.value == "list":
             text = ", ".join(f"<@&{i}>" for i in ids) or "No support roles yet."
-            return await interaction.response.send_message(embed=cozy_embed("Support Roles", text, LAVENDER), ephemeral=True)
+            return await interaction.response.send_message(embed=web_embed("Support Roles", text, BLUE), ephemeral=True)
         if role is None:
             return await fail(interaction, "Tell me which role.")
         if action.value == "add":
@@ -375,9 +375,9 @@ class Tickets(commands.Cog):
                 return await fail(interaction, "That role isn't a support role.")
             ids.remove(role.id)
         self.save()
-        await interaction.response.send_message(embed=cozy_embed(
+        await interaction.response.send_message(embed=web_embed(
             "Support Roles Updated!", f"{'Added' if action.value == 'add' else 'Removed'} {role.mention}. 🎧\n"
-                                      "(New tickets use this. Existing tickets keep their old access.)", LAVENDER))
+                                      "(New tickets use this. Existing tickets keep their old access.)", BLUE))
 
     @ticket.command(name="add", description="Add a member to this ticket")
     async def add(self, interaction: discord.Interaction, user: discord.Member):
@@ -385,10 +385,10 @@ class Tickets(commands.Cog):
         if ticket is None:
             return await fail(interaction, "Use this inside a ticket channel.")
         if not self.is_staff(interaction.user, ticket):
-            return await fail(interaction, "Only this ticket's support staff can add people. 🌙")
+            return await fail(interaction, "Only this ticket's support staff can add people. 🕷️")
         await interaction.channel.set_permissions(user, view_channel=True, send_messages=True,
                                                   read_message_history=True, attach_files=True)
-        await interaction.response.send_message(embed=cozy_embed("Member Added!", f"{user.mention} can now see this ticket. ☁️", LAVENDER))
+        await interaction.response.send_message(embed=web_embed("Member Added!", f"{user.mention} can now see this ticket. 🕸️", BLUE))
 
     @ticket.command(name="remove", description="Remove a member from this ticket")
     async def remove(self, interaction: discord.Interaction, user: discord.Member):
@@ -396,11 +396,11 @@ class Tickets(commands.Cog):
         if ticket is None:
             return await fail(interaction, "Use this inside a ticket channel.")
         if not self.is_staff(interaction.user, ticket):
-            return await fail(interaction, "Only this ticket's support staff can remove people. 🌙")
+            return await fail(interaction, "Only this ticket's support staff can remove people. 🕷️")
         if user.id == ticket["opener"]:
             return await fail(interaction, "You can't remove the ticket owner. Close the ticket instead.")
         await interaction.channel.set_permissions(user, overwrite=None)
-        await interaction.response.send_message(embed=cozy_embed("Member Removed!", f"{user.mention} can no longer see this ticket.", NIGHT))
+        await interaction.response.send_message(embed=web_embed("Member Removed!", f"{user.mention} can no longer see this ticket.", DARK))
 
     @ticket.command(name="rename", description="Rename this ticket")
     async def rename(self, interaction: discord.Interaction, name: app_commands.Range[str, 1, 90]):
@@ -408,7 +408,7 @@ class Tickets(commands.Cog):
         if ticket is None:
             return await fail(interaction, "Use this inside a ticket channel.")
         if not self.is_staff(interaction.user, ticket):
-            return await fail(interaction, "Only this ticket's support staff can rename it. 🌙")
+            return await fail(interaction, "Only this ticket's support staff can rename it. 🕷️")
         clean = re.sub(r"[^a-z0-9-]+", "-", name.lower()).strip("-")
         if not clean:
             return await fail(interaction, "Use letters or numbers in the name.")
@@ -418,7 +418,7 @@ class Tickets(commands.Cog):
             return await fail(interaction, "Discord is rate-limiting renames (2 per 10 minutes). Try again later.")
         except discord.HTTPException as e:
             return await fail(interaction, e.text)
-        await interaction.response.send_message(embed=cozy_embed("Ticket Renamed!", f"This ticket is now **#{clean}**.", LAVENDER))
+        await interaction.response.send_message(embed=web_embed("Ticket Renamed!", f"This ticket is now **#{clean}**.", BLUE))
 
     @ticket.command(name="close", description="Close the ticket and save a transcript")
     @app_commands.describe(reason="Why is it being closed?")

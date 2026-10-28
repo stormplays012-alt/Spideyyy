@@ -12,7 +12,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from theme import cozy_embed, PEACH, LAVENDER, NIGHT
+from theme import web_embed, RED, BLUE, DARK
 from moderation import parse_duration, fmt_duration, fail
 
 DATA_FILE = "automod.json"
@@ -91,7 +91,7 @@ def compile_badword(word: str) -> re.Pattern:
 # ------------------------------------------------------------------ cog
 class AutoMod(commands.Cog):
     automod = app_commands.Group(
-        name="automod", description="Configure Hamsafar's AutoMod", guild_only=True,
+        name="automod", description="Configure Spidey's AutoMod", guild_only=True,
         default_permissions=discord.Permissions(manage_guild=True))
 
     def __init__(self, bot: commands.Bot):
@@ -144,7 +144,7 @@ class AutoMod(commands.Cog):
             s = c["spam"]
             recent = [m for t, m in hist if now - t <= s["seconds"]]
             if len(recent) >= s["messages"]:
-                return "spam", "you're sending messages too fast. Slow down! 🌙", recent
+                return "spam", "you're sending messages too fast. Slow down! 🕷️", recent
 
         if not edited and mods["duplicates"] and text.strip():
             norm = text.strip().lower()
@@ -170,7 +170,7 @@ class AutoMod(commands.Cog):
         if mods["badwords"]:
             for word in c["badwords"]:
                 if compile_badword(word).search(text):
-                    return "badwords", "watch your language! ☁️", []
+                    return "badwords", "watch your language! 🕸️", []
 
         if mods["caps"]:
             letters = [ch for ch in text if ch.isalpha()]
@@ -248,9 +248,9 @@ class AutoMod(commands.Cog):
         if now - self.last_notice.get(key, 0) > 5:
             self.last_notice[key] = now
             try:
-                await message.channel.send(embed=cozy_embed(
-                    "A Gentle Heads-Up", f"{member.mention}, {reason}\n"
-                                          f"**Strike {min(count, p['strikes'])}/{p['strikes']}** • module: `{module}`", NIGHT),
+                await message.channel.send(embed=web_embed(
+                    "Caught in the Web!", f"{member.mention}, {reason}\n"
+                                          f"**Strike {min(count, p['strikes'])}/{p['strikes']}** • module: `{module}`", DARK),
                     delete_after=8)
             except discord.HTTPException:
                 pass
@@ -277,9 +277,9 @@ class AutoMod(commands.Cog):
                 return
         except discord.HTTPException:
             try:
-                await message.channel.send(embed=cozy_embed(
-                    "Oops, a Little Bump!", f"I tried to {action} {member.mention} but I don't have the permission "
-                                    "(is my role above theirs?).", NIGHT), delete_after=10)
+                await message.channel.send(embed=web_embed(
+                    "Web Snagged!", f"I tried to {action} {member.mention} but I don't have the permission "
+                                    "(is my role above theirs?).", DARK), delete_after=10)
             except discord.HTTPException:
                 pass
             return
@@ -289,8 +289,8 @@ class AutoMod(commands.Cog):
             await mod.record(guild, {"timeout": "mute"}.get(action, action), member.id,
                              self.bot.user.id, why)
         try:
-            await message.channel.send(embed=cozy_embed(
-                "AutoMod Steps In!", f"{member.mention} was **{label}**{extra} for repeated violations. 🌙", PEACH))
+            await message.channel.send(embed=web_embed(
+                "Web Justice!", f"{member.mention} was **{label}**{extra} for repeated violations. 🕷️", RED))
         except discord.HTTPException:
             pass
 
@@ -327,7 +327,7 @@ class AutoMod(commands.Cog):
             f"🛡️ **Ignore staff:** {'yes' if c['ignore_staff'] else 'no'}",
             f"🙈 **Ignored channels:** {ch}", f"🙈 **Ignored roles:** {ro}",
         ]
-        await interaction.response.send_message(embed=cozy_embed("AutoMod Status", "\n".join(lines), LAVENDER), ephemeral=True)
+        await interaction.response.send_message(embed=web_embed("AutoMod Web", "\n".join(lines), BLUE), ephemeral=True)
 
     @automod.command(name="toggle", description="Turn a module (or all) on or off")
     @app_commands.describe(module="Which protection?", enabled="On or off?")
@@ -339,8 +339,8 @@ class AutoMod(commands.Cog):
             c["modules"][n] = enabled
         self.save()
         label = "all modules" if module.value == "all" else f"**{module.value}**"
-        await interaction.response.send_message(embed=cozy_embed(
-            "AutoMod Updated!", f"{'🟢 Enabled' if enabled else '🔴 Disabled'} {label}.", LAVENDER))
+        await interaction.response.send_message(embed=web_embed(
+            "AutoMod Updated!", f"{'🟢 Enabled' if enabled else '🔴 Disabled'} {label}.", BLUE))
 
     @automod.command(name="set", description="Change a numeric setting")
     @app_commands.describe(setting="Which setting?", value="The new value")
@@ -351,8 +351,8 @@ class AutoMod(commands.Cog):
             return await fail(interaction, f"**{setting.value}** must be between {lo} and {hi}.")
         self.cfg(interaction.guild.id)[section][key] = value
         self.save()
-        await interaction.response.send_message(embed=cozy_embed(
-            "AutoMod Updated!", f"`{setting.value}` is now **{value}**.\n_{label}_", LAVENDER))
+        await interaction.response.send_message(embed=web_embed(
+            "AutoMod Updated!", f"`{setting.value}` is now **{value}**.\n_{label}_", BLUE))
 
     @automod.command(name="punishment", description="What happens when someone collects too many strikes")
     @app_commands.describe(action="Punishment", strikes="Strikes needed (1-10)",
@@ -377,9 +377,9 @@ class AutoMod(commands.Cog):
             p["strikes"] = strikes
         p["action"] = action.value
         self.save()
-        await interaction.response.send_message(embed=cozy_embed(
+        await interaction.response.send_message(embed=web_embed(
             "Punishment Set!", f"**{p['action']}** after **{p['strikes']}** strikes within {fmt_duration(p['window'])}"
-                               + (f", mute length {fmt_duration(p['duration'])}" if p["action"] == "timeout" else ""), LAVENDER))
+                               + (f", mute length {fmt_duration(p['duration'])}" if p["action"] == "timeout" else ""), BLUE))
 
     @automod.command(name="badwords", description="Manage the bad word list (use * as a wildcard, e.g. spam*)")
     @app_commands.describe(action="add / remove / list", word="The word (not needed for list)")
@@ -390,7 +390,7 @@ class AutoMod(commands.Cog):
         if action.value == "list":
             text = ", ".join(f"`{w}`" for w in words) or "The list is empty."
             return await interaction.response.send_message(
-                embed=cozy_embed("Bad Word List", text[:4000], NIGHT), ephemeral=True)
+                embed=web_embed("Bad Word List", text[:4000], DARK), ephemeral=True)
         if not word:
             return await fail(interaction, "Tell me which word.")
         word = word.strip().lower()
@@ -404,9 +404,9 @@ class AutoMod(commands.Cog):
             words.remove(word)
         self.save()
         # ephemeral so the word isn't shown to everyone
-        await interaction.response.send_message(embed=cozy_embed(
+        await interaction.response.send_message(embed=web_embed(
             "Bad Word List Updated!", f"{'Added' if action.value == 'add' else 'Removed'} the word. "
-                                      f"({len(words)} total)", LAVENDER), ephemeral=True)
+                                      f"({len(words)} total)", BLUE), ephemeral=True)
 
     @automod.command(name="allowlist", description="Manage domains that the links module allows")
     @app_commands.describe(action="add / remove / list", domain="e.g. youtube.com")
@@ -417,7 +417,7 @@ class AutoMod(commands.Cog):
         if action.value == "list":
             text = ", ".join(f"`{d}`" for d in domains) or "No allowed domains."
             return await interaction.response.send_message(
-                embed=cozy_embed("Allowed Domains", text, LAVENDER), ephemeral=True)
+                embed=web_embed("Allowed Domains", text, BLUE), ephemeral=True)
         if not domain:
             return await fail(interaction, "Tell me which domain.")
         domain = domain_of(domain.strip())
@@ -430,9 +430,9 @@ class AutoMod(commands.Cog):
                 return await fail(interaction, "That domain isn't on the list.")
             domains.remove(domain)
         self.save()
-        await interaction.response.send_message(embed=cozy_embed(
+        await interaction.response.send_message(embed=web_embed(
             "Allowlist Updated!", f"{'Added' if action.value == 'add' else 'Removed'} `{domain}` "
-                                  "(subdomains are included).", LAVENDER))
+                                  "(subdomains are included).", BLUE))
 
     @automod.command(name="ignorechannel", description="Toggle a channel AutoMod should ignore")
     async def ignorechannel(self, interaction: discord.Interaction, channel: discord.TextChannel):
@@ -444,7 +444,7 @@ class AutoMod(commands.Cog):
             ids.append(channel.id)
             text = f"AutoMod will now ignore {channel.mention}. 🙈"
         self.save()
-        await interaction.response.send_message(embed=cozy_embed("Ignore List Updated!", text, LAVENDER))
+        await interaction.response.send_message(embed=web_embed("Ignore List Updated!", text, BLUE))
 
     @automod.command(name="ignorerole", description="Toggle a role AutoMod should ignore")
     async def ignorerole(self, interaction: discord.Interaction, role: discord.Role):
@@ -456,15 +456,15 @@ class AutoMod(commands.Cog):
             ids.append(role.id)
             text = f"AutoMod will now ignore {role.mention}. 🙈"
         self.save()
-        await interaction.response.send_message(embed=cozy_embed("Ignore List Updated!", text, LAVENDER))
+        await interaction.response.send_message(embed=web_embed("Ignore List Updated!", text, BLUE))
 
     @automod.command(name="staff", description="Should AutoMod ignore staff (Manage Messages / Admin)?")
     async def staff(self, interaction: discord.Interaction, ignore_staff: bool):
         self.cfg(interaction.guild.id)["ignore_staff"] = ignore_staff
         self.save()
-        await interaction.response.send_message(embed=cozy_embed(
+        await interaction.response.send_message(embed=web_embed(
             "AutoMod Updated!", f"Staff are now **{'ignored' if ignore_staff else 'checked like everyone else'}**. "
-                                "(Turn this off to test AutoMod on yourself.)", LAVENDER))
+                                "(Turn this off to test AutoMod on yourself.)", BLUE))
 
     @automod.command(name="strikes", description="See a member's current AutoMod strikes")
     async def strikes_cmd(self, interaction: discord.Interaction, member: discord.Member):
@@ -472,22 +472,22 @@ class AutoMod(commands.Cog):
         dq = self.strikes[(interaction.guild.id, member.id)]
         now = time.time()
         count = sum(1 for t in dq if now - t <= p["window"])
-        await interaction.response.send_message(embed=cozy_embed(
-            "AutoMod Strikes", f"{member.mention} has **{count}/{p['strikes']}** active strikes.", NIGHT), ephemeral=True)
+        await interaction.response.send_message(embed=web_embed(
+            "AutoMod Strikes", f"{member.mention} has **{count}/{p['strikes']}** active strikes.", DARK), ephemeral=True)
 
     @automod.command(name="clearstrikes", description="Reset a member's AutoMod strikes")
     async def clearstrikes(self, interaction: discord.Interaction, member: discord.Member):
         self.strikes[(interaction.guild.id, member.id)].clear()
-        await interaction.response.send_message(embed=cozy_embed(
-            "Strikes Cleared!", f"{member.mention}'s strikes were reset. ☁️", LAVENDER))
+        await interaction.response.send_message(embed=web_embed(
+            "Strikes Cleared!", f"{member.mention}'s strikes were reset. 🕸️", BLUE))
 
     @automod.command(name="reset", description="Reset ALL AutoMod settings to defaults (everything off)")
     async def reset(self, interaction: discord.Interaction):
         self.data["guilds"][str(interaction.guild.id)] = {}
         self.save()
         self.cfg(interaction.guild.id)
-        await interaction.response.send_message(embed=cozy_embed(
-            "AutoMod Reset!", "All settings are back to defaults and every module is **off**.", NIGHT))
+        await interaction.response.send_message(embed=web_embed(
+            "AutoMod Reset!", "All settings are back to defaults and every module is **off**.", DARK))
 
 
 async def setup(bot: commands.Bot):

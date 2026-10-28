@@ -6,14 +6,14 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from theme import cozy_embed, PEACH, LAVENDER, NIGHT
+from theme import web_embed, RED, BLUE, DARK
 from moderation import fail
 from economy import parse_amount, MIN_BET, MAX_BET, EMOJI
 
 # ------------------------------------------------------------------ pure game logic
-SLOT_SYMBOLS = ["☁️", "🍂", "🍵", "🌙", "💎", "🌟"]
+SLOT_SYMBOLS = ["🕸️", "🪰", "🐞", "🕷️", "💎", "👑"]
 SLOT_WEIGHTS = [35, 25, 18, 12, 7, 3]
-SLOT_TRIPLE = {"☁️": 3, "🍂": 5, "🍵": 8, "🌙": 15, "💎": 40, "🌟": 100}
+SLOT_TRIPLE = {"🕸️": 3, "🪰": 5, "🐞": 8, "🕷️": 15, "💎": 40, "👑": 100}
 SLOT_PAIR = 1.2
 
 SUITS = ["♠️", "♥️", "♦️", "♣️"]
@@ -109,8 +109,8 @@ class BlackjackView(discord.ui.View):
 
     def embed(self, outcome: Optional[str] = None, payout: int = 0, profit: int = 0, note: str = "") -> discord.Embed:
         reveal = outcome is not None
-        colors = {None: PEACH, "blackjack": LAVENDER, "win": LAVENDER, "push": PEACH, "lose": NIGHT, "bust": NIGHT}
-        embed = cozy_embed("Blackjack", f"{self.user.mention}'s table 🌙", colors[outcome])
+        colors = {None: RED, "blackjack": BLUE, "win": BLUE, "push": RED, "lose": DARK, "bust": DARK}
+        embed = web_embed("Blackjack", f"{self.user.mention}'s table 🕷️", colors[outcome])
         embed.add_field(name=f"Your hand ({hand_total(self.player)})", value=fmt_cards(self.player), inline=False)
         if reveal:
             embed.add_field(name=f"Dealer ({hand_total(self.dealer)})", value=fmt_cards(self.dealer), inline=False)
@@ -122,7 +122,7 @@ class BlackjackView(discord.ui.View):
                     "push": "🤝 **Push.** Your bet is returned.", "lose": "❌ **Dealer wins.**",
                     "bust": "💥 **Bust!** Over 21."}[outcome]
             sign = f"+{profit:,}" if profit > 0 else f"{profit:,}"
-            embed.add_field(name="Result", value=f"{text}\n**{sign}** stardust{note}\n"
+            embed.add_field(name="Result", value=f"{text}\n**{sign}** webs{note}\n"
                                                  f"💰 Balance: {self.cog.eco.wallet(*self.key):,}", inline=False)
         return embed
 
@@ -154,7 +154,7 @@ class BlackjackView(discord.ui.View):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user.id:
-            await interaction.response.send_message("This isn't your table! Start one with `/blackjack`. 🌙", ephemeral=True)
+            await interaction.response.send_message("This isn't your table! Start one with `/blackjack`. 🕷️", ephemeral=True)
             return False
         return True
 
@@ -180,7 +180,7 @@ class BlackjackView(discord.ui.View):
     @discord.ui.button(label="Double", emoji="✖️", style=discord.ButtonStyle.success)
     async def double(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.cog.eco.take(*self.key, self.bet):
-            return await interaction.response.send_message("You don't have enough stardust to double down. ☁️", ephemeral=True)
+            return await interaction.response.send_message("You don't have enough webs to double down. 🕸️", ephemeral=True)
         self.bet *= 2
         self.player.append(self.deck.pop())
         if hand_total(self.player) > 21:
@@ -223,10 +223,10 @@ class MinesView(discord.ui.View):
     def potential(self) -> int:
         return int(self.bet * self.mult)
 
-    def embed(self, status: str = "", color: int = PEACH) -> discord.Embed:
+    def embed(self, status: str = "", color: int = RED) -> discord.Embed:
         desc = (f"{self.user.mention}, pick boxes! Each safe box {EMOJI} raises your multiplier.\n"
                 "Hit a mine 💥 and you lose your bet. Cash out any time!")
-        embed = cozy_embed("Mines", desc, color)
+        embed = web_embed("Mines", desc, color)
         embed.add_field(name="Bet", value=f"{self.bet:,}")
         embed.add_field(name="Mines", value=str(self.mines))
         embed.add_field(name="Safe found", value=f"{len(self.revealed)}/{MINES_N - self.mines}")
@@ -259,8 +259,8 @@ class MinesView(discord.ui.View):
         self.reveal_all()
         self.stop()
         sign = f"+{profit:,}" if profit > 0 else f"{profit:,}"
-        status = f"{reason}\n**{sign}** stardust{note}\n💰 Balance: {self.cog.eco.wallet(*self.key):,}"
-        embed = self.embed(status, LAVENDER if profit > 0 else NIGHT)
+        status = f"{reason}\n**{sign}** webs{note}\n💰 Balance: {self.cog.eco.wallet(*self.key):,}"
+        embed = self.embed(status, BLUE if profit > 0 else DARK)
         if interaction is not None:
             await interaction.response.edit_message(embed=embed, view=self)
         elif self.message is not None:
@@ -285,7 +285,7 @@ class MinesView(discord.ui.View):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user.id:
-            await interaction.response.send_message("This isn't your mine! Start one with `/mines`. 🌙", ephemeral=True)
+            await interaction.response.send_message("This isn't your mine! Start one with `/mines`. 🕷️", ephemeral=True)
             return False
         return True
 
@@ -304,7 +304,7 @@ class MinesView(discord.ui.View):
         self.reveal_all()
         if self.message is not None:
             try:
-                await self.message.edit(embed=self.embed("⏰ Timed out with no picks, so your bet was refunded.", NIGHT), view=self)
+                await self.message.edit(embed=self.embed("⏰ Timed out with no picks, so your bet was refunded.", DARK), view=self)
             except discord.HTTPException:
                 pass
 
@@ -343,8 +343,8 @@ class HiLoView(discord.ui.View):
         self.cash.disabled = self.streak == 0
         self.cash.label = f"Cash Out · {self.potential:,}"
 
-    def embed(self, status: str = "", color: int = PEACH) -> discord.Embed:
-        embed = cozy_embed("Hi-Lo", f"{self.user.mention}, will the next card be higher or lower?\n"
+    def embed(self, status: str = "", color: int = RED) -> discord.Embed:
+        embed = web_embed("Hi-Lo", f"{self.user.mention}, will the next card be higher or lower?\n"
                                    "Ties lose. Cash out whenever you like!", color)
         embed.add_field(name="Current card", value=f"`{hilo_name(self.card)}`{self.suit}")
         embed.add_field(name="Streak", value=str(self.streak))
@@ -364,8 +364,8 @@ class HiLoView(discord.ui.View):
             item.disabled = True
         self.stop()
         sign = f"+{profit:,}" if profit > 0 else f"{profit:,}"
-        status = f"{reason}\n**{sign}** stardust{note}\n💰 Balance: {self.cog.eco.wallet(*self.key):,}"
-        embed = self.embed(status, LAVENDER if profit > 0 else NIGHT)
+        status = f"{reason}\n**{sign}** webs{note}\n💰 Balance: {self.cog.eco.wallet(*self.key):,}"
+        embed = self.embed(status, BLUE if profit > 0 else DARK)
         if interaction is not None:
             await interaction.response.edit_message(embed=embed, view=self)
         elif self.message is not None:
@@ -394,7 +394,7 @@ class HiLoView(discord.ui.View):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.user.id:
-            await interaction.response.send_message("This isn't your game! Start one with `/casino hilo`. 🌙", ephemeral=True)
+            await interaction.response.send_message("This isn't your game! Start one with `/casino hilo`. 🕷️", ephemeral=True)
             return False
         return True
 
@@ -410,7 +410,7 @@ class HiLoView(discord.ui.View):
                     item.disabled = True
                 if self.message is not None:
                     try:
-                        await self.message.edit(embed=self.embed("⏰ Timed out, so your bet was refunded.", NIGHT), view=self)
+                        await self.message.edit(embed=self.embed("⏰ Timed out, so your bet was refunded.", DARK), view=self)
                     except discord.HTTPException:
                         pass
 
@@ -429,7 +429,7 @@ class HiLoView(discord.ui.View):
 
 # ------------------------------------------------------------------ the cog
 class Casino(commands.Cog):
-    casino = app_commands.Group(name="casino", description="More cozy games: hilo, roulette, dice, rps",
+    casino = app_commands.Group(name="casino", description="More web games: hilo, roulette, dice, rps",
                                 guild_only=True)
 
     def __init__(self, bot: commands.Bot):
@@ -449,7 +449,7 @@ class Casino(commands.Cog):
             return None
         gid, uid = interaction.guild.id, interaction.user.id
         if uid in self.busy:
-            await fail(interaction, "You already have a game running! Finish it first. 🌙")
+            await fail(interaction, "You already have a game running! Finish it first. 🕷️")
             return None
         wallet = eco.wallet(gid, uid)
         amount = parse_amount(bet_text, wallet)
@@ -459,13 +459,13 @@ class Casino(commands.Cog):
         if bet_text.strip().lower() in ("all", "half"):
             amount = min(amount, MAX_BET)
         if amount < MIN_BET:
-            await fail(interaction, f"The minimum bet is **{MIN_BET}** stardust.")
+            await fail(interaction, f"The minimum bet is **{MIN_BET}** webs.")
             return None
         if amount > MAX_BET:
-            await fail(interaction, f"The maximum bet is **{MAX_BET:,}** stardust.")
+            await fail(interaction, f"The maximum bet is **{MAX_BET:,}** webs.")
             return None
         if not eco.take(gid, uid, amount):
-            await fail(interaction, f"You only have **{wallet:,}** stardust in your wallet. ☁️")
+            await fail(interaction, f"You only have **{wallet:,}** webs in your wallet. 🕸️")
             return None
         self.busy.add(uid)
         return amount
@@ -489,11 +489,11 @@ class Casino(commands.Cog):
     def result_embed(self, title: str, body: str, profit: int, gid: int, uid: int, note: str = "") -> discord.Embed:
         sign = f"+{profit:,}" if profit > 0 else f"{profit:,}"
         label = "🎉 You won" if profit > 0 else ("🤝 Push" if profit == 0 else "❌ You lost")
-        desc = f"{body}\n\n{label}: **{sign}** stardust{note}\n💰 **Balance:** {self.eco.wallet(gid, uid):,}"
-        return cozy_embed(title, desc, LAVENDER if profit > 0 else (PEACH if profit == 0 else NIGHT))
+        desc = f"{body}\n\n{label}: **{sign}** webs{note}\n💰 **Balance:** {self.eco.wallet(gid, uid):,}"
+        return web_embed(title, desc, BLUE if profit > 0 else (RED if profit == 0 else DARK))
 
     # ================================================================ COIN FLIP
-    @app_commands.command(name="coinflip", description="Flip a coin and double your stardust")
+    @app_commands.command(name="coinflip", description="Flip a coin and double your webs")
     @app_commands.describe(bet="Amount (e.g. 500, 2k, half, all)", side="Heads or tails?")
     @app_commands.choices(side=[app_commands.Choice(name="Heads", value="heads"),
                                 app_commands.Choice(name="Tails", value="tails")])
@@ -504,9 +504,9 @@ class Casino(commands.Cog):
             return
         gid, uid = interaction.guild.id, interaction.user.id
         try:
-            await interaction.response.send_message(embed=cozy_embed(
-                "Coin Flip", f"{interaction.user.mention} bets **{amount:,}** stardust on **{side.name}**.\n"
-                             "🪙 The coin spins through the starlight…", PEACH))
+            await interaction.response.send_message(embed=web_embed(
+                "Coin Flip", f"{interaction.user.mention} bets **{amount:,}** webs on **{side.name}**.\n"
+                             "🪙 The coin spins through the web…", RED))
         except discord.HTTPException:
             return self.abort(gid, uid, amount)
         result = random.choice(["heads", "tails"])
@@ -518,7 +518,7 @@ class Casino(commands.Cog):
         await interaction.edit_original_response(embed=self.result_embed("Coin Flip", body, profit, gid, uid, note))
 
     # ================================================================ SLOTS
-    @app_commands.command(name="slots", description="Spin the cozy slot machine")
+    @app_commands.command(name="slots", description="Spin the web slot machine")
     @app_commands.describe(bet="Amount (e.g. 500, 2k, half, all)")
     @app_commands.guild_only()
     async def slots(self, interaction: discord.Interaction, bet: str):
@@ -526,11 +526,11 @@ class Casino(commands.Cog):
         if amount is None:
             return
         gid, uid = interaction.guild.id, interaction.user.id
-        paytable = ("3 match: ☁️×3 • 🍂×5 • 🍵×8 • 🌙×15 • 💎×40 • 🌟×100\nAny pair: ×1.2")
+        paytable = ("3 match: 🕸️×3 • 🪰×5 • 🐞×8 • 🕷️×15 • 💎×40 • 👑×100\nAny pair: ×1.2")
         try:
-            await interaction.response.send_message(embed=cozy_embed(
-                "Cozy Slots", f"{interaction.user.mention} bets **{amount:,}** stardust.\n\n"
-                             f"┃ ❓ ┃ ❓ ┃ ❓ ┃\n\n{paytable}", PEACH))
+            await interaction.response.send_message(embed=web_embed(
+                "Web Slots", f"{interaction.user.mention} bets **{amount:,}** webs.\n\n"
+                             f"┃ ❓ ┃ ❓ ┃ ❓ ┃\n\n{paytable}", RED))
         except discord.HTTPException:
             return self.abort(gid, uid, amount)
         reels = random.choices(SLOT_SYMBOLS, SLOT_WEIGHTS, k=3)
@@ -542,9 +542,9 @@ class Casino(commands.Cog):
             await asyncio.sleep(0.9)
             shown[i] = reels[i]
             if i < 2:
-                await interaction.edit_original_response(embed=cozy_embed(
-                    "Cozy Slots", f"{interaction.user.mention} bets **{amount:,}** stardust.\n\n"
-                                 f"┃ {' ┃ '.join(shown)} ┃\n\n{paytable}", PEACH))
+                await interaction.edit_original_response(embed=web_embed(
+                    "Web Slots", f"{interaction.user.mention} bets **{amount:,}** webs.\n\n"
+                                 f"┃ {' ┃ '.join(shown)} ┃\n\n{paytable}", RED))
         if reels[0] == reels[1] == reels[2]:
             headline = "🎊 **JACKPOT!** Three of a kind!"
         elif len(set(reels)) == 2:
@@ -552,10 +552,10 @@ class Casino(commands.Cog):
         else:
             headline = "No match this time."
         body = f"┃ {' ┃ '.join(reels)} ┃\n{headline}"
-        await interaction.edit_original_response(embed=self.result_embed("Cozy Slots", body, profit, gid, uid, note))
+        await interaction.edit_original_response(embed=self.result_embed("Web Slots", body, profit, gid, uid, note))
 
     # ================================================================ BLACKJACK
-    @app_commands.command(name="blackjack", description="Play blackjack against Hamsafar")
+    @app_commands.command(name="blackjack", description="Play blackjack against Spidey")
     @app_commands.describe(bet="Amount (e.g. 500, 2k, half, all)")
     @app_commands.guild_only()
     async def blackjack(self, interaction: discord.Interaction, bet: str):
@@ -617,9 +617,9 @@ class Casino(commands.Cog):
             return
         gid, uid = interaction.guild.id, interaction.user.id
         try:
-            await interaction.response.send_message(embed=cozy_embed(
-                "Cozy Roulette", f"{interaction.user.mention} bets **{amount:,}** stardust on **{choice.lower()}**.\n"
-                                "🎡 The wheel is spinning…", PEACH))
+            await interaction.response.send_message(embed=web_embed(
+                "Web Roulette", f"{interaction.user.mention} bets **{amount:,}** webs on **{choice.lower()}**.\n"
+                                "🎡 The wheel is spinning…", RED))
         except discord.HTTPException:
             return self.abort(gid, uid, amount)
         n = random.randint(0, 36)
@@ -628,7 +628,7 @@ class Casino(commands.Cog):
         self.busy.discard(uid)
         await asyncio.sleep(2)
         body = f"The ball landed on {roulette_color(n)} **{n}**."
-        await interaction.edit_original_response(embed=self.result_embed("Cozy Roulette", body, profit, gid, uid, note))
+        await interaction.edit_original_response(embed=self.result_embed("Web Roulette", body, profit, gid, uid, note))
 
     @roulette.autocomplete("choice")
     async def roulette_autocomplete(self, interaction: discord.Interaction, current: str):
@@ -636,7 +636,7 @@ class Casino(commands.Cog):
         return [app_commands.Choice(name=n, value=n) for n in names if current.lower() in n][:25]
 
     # ================================================================ DICE DUEL
-    @casino.command(name="dice", description="Roll two dice against Hamsafar (higher total wins)")
+    @casino.command(name="dice", description="Roll two dice against Spidey (higher total wins)")
     @app_commands.describe(bet="Amount (e.g. 500, 2k, half, all)")
     async def dice(self, interaction: discord.Interaction, bet: str):
         amount = await self.start_bet(interaction, bet)
@@ -644,8 +644,8 @@ class Casino(commands.Cog):
             return
         gid, uid = interaction.guild.id, interaction.user.id
         try:
-            await interaction.response.send_message(embed=cozy_embed(
-                "Dice Duel", f"{interaction.user.mention} bets **{amount:,}** stardust.\n🎲 Rolling the dice…", PEACH))
+            await interaction.response.send_message(embed=web_embed(
+                "Dice Duel", f"{interaction.user.mention} bets **{amount:,}** webs.\n🎲 Rolling the dice…", RED))
         except discord.HTTPException:
             return self.abort(gid, uid, amount)
         mine = [random.randint(1, 6), random.randint(1, 6)]
@@ -655,12 +655,12 @@ class Casino(commands.Cog):
         payout, profit, note = self.settle(gid, uid, amount, payout)
         self.busy.discard(uid)
         await asyncio.sleep(1.2)
-        verdict = "You win! Pays 1.9x." if a > b else ("A tie." if a == b else "Hamsafar wins.")
-        body = f"🎲 **You:** {mine[0]} + {mine[1]} = **{a}**\n🌙 **Hamsafar:** {theirs[0]} + {theirs[1]} = **{b}**\n{verdict}"
+        verdict = "You win! Pays 1.9x." if a > b else ("A tie." if a == b else "Spidey wins.")
+        body = f"🎲 **You:** {mine[0]} + {mine[1]} = **{a}**\n🕷️ **Spidey:** {theirs[0]} + {theirs[1]} = **{b}**\n{verdict}"
         await interaction.edit_original_response(embed=self.result_embed("Dice Duel", body, profit, gid, uid, note))
 
     # ================================================================ ROCK PAPER SCISSORS
-    @casino.command(name="rps", description="Rock paper scissors against Hamsafar")
+    @casino.command(name="rps", description="Rock paper scissors against Spidey")
     @app_commands.describe(bet="Amount (e.g. 500, 2k, half, all)", choice="Your move")
     @app_commands.choices(choice=[app_commands.Choice(name="🪨 Rock", value="rock"),
                                   app_commands.Choice(name="📄 Paper", value="paper"),
@@ -672,16 +672,16 @@ class Casino(commands.Cog):
         gid, uid = interaction.guild.id, interaction.user.id
         emojis = {"rock": "🪨", "paper": "📄", "scissors": "✂️"}
         beats = {"rock": "scissors", "paper": "rock", "scissors": "paper"}
-        hamsafar = random.choice(list(beats))
-        if choice.value == hamsafar:
+        spidey = random.choice(list(beats))
+        if choice.value == spidey:
             payout, verdict = amount, "A tie!"
-        elif beats[choice.value] == hamsafar:
+        elif beats[choice.value] == spidey:
             payout, verdict = int(amount * 1.9), "You win! Pays 1.9x."
         else:
-            payout, verdict = 0, "Hamsafar wins."
+            payout, verdict = 0, "Spidey wins."
         payout, profit, note = self.settle(gid, uid, amount, payout)
         self.busy.discard(uid)
-        body = f"You: {emojis[choice.value]} **{choice.value}**\nHamsafar: {emojis[hamsafar]} **{hamsafar}**\n{verdict}"
+        body = f"You: {emojis[choice.value]} **{choice.value}**\nSpidey: {emojis[spidey]} **{spidey}**\n{verdict}"
         await interaction.response.send_message(embed=self.result_embed("Rock Paper Scissors", body, profit, gid, uid, note))
 
 

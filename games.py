@@ -4,16 +4,16 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from theme import cozy_embed, PEACH, LAVENDER, NIGHT
+from theme import web_embed, RED, BLUE, DARK
 
 MIN_NUM, MAX_NUM = 1, 100
 
 
 async def _err(interaction: discord.Interaction, text: str):
-    await interaction.response.send_message(embed=cozy_embed("Oops, a Little Bump!", text, NIGHT), ephemeral=True)
+    await interaction.response.send_message(embed=web_embed("Web Snagged!", text, DARK), ephemeral=True)
 
 
-class GuessModal(discord.ui.Modal, title="Make your guess 🌙"):
+class GuessModal(discord.ui.Modal, title="Make your guess 🕷️"):
     number = discord.ui.TextInput(
         label=f"Pick a number from {MIN_NUM} to {MAX_NUM}",
         placeholder="e.g. 50", min_length=1, max_length=3,
@@ -41,11 +41,11 @@ class GuessGame(discord.ui.View):
     # ---------- embeds
     def build_embed(self, note: str = "") -> discord.Embed:
         desc = (f"{self.player.mention}, I'm thinking of a number between "
-                f"**{MIN_NUM}** and **{MAX_NUM}**. 🌙\n"
-                "Press **Guess** and try to catch it before it slips away! ✨")
+                f"**{MIN_NUM}** and **{MAX_NUM}**. 🕷️\n"
+                "Press **Guess** and try to catch it in my web! 🕸️")
         if note:
             desc += f"\n\n{note}"
-        embed = cozy_embed("Number Guessing Game", desc, PEACH)
+        embed = web_embed("Number Guessing Web", desc, RED)
         if self.guesses:
             lines = [f"**{n}** — {hint}" for n, hint in self.guesses[-15:]]
             embed.add_field(name=f"{self.player.display_name}'s guesses ({len(self.guesses)})",
@@ -57,16 +57,16 @@ class GuessGame(discord.ui.View):
     def end_embed(self, won: bool, gave_up: bool = False, timed_out: bool = False) -> discord.Embed:
         tries = len(self.guesses)
         if won:
-            title, color = "You Caught It! 🎉", LAVENDER
+            title, color = "You Caught It! 🎉", BLUE
             desc = (f"{self.player.mention} guessed my number **{self.secret}** "
-                    f"in **{tries}** attempt{'s' if tries != 1 else ''}! 🌙")
+                    f"in **{tries}** attempt{'s' if tries != 1 else ''}! 🕷️")
         elif gave_up:
-            title, color = "Game Abandoned!", NIGHT
-            desc = f"{self.player.mention} gave up. My number was **{self.secret}**. ☁️"
+            title, color = "Web Abandoned!", DARK
+            desc = f"{self.player.mention} gave up. My number was **{self.secret}**. 🕸️"
         else:
-            title, color = "Time's Up!", NIGHT
-            desc = f"Time ran out. My number was **{self.secret}**. ☁️"
-        embed = cozy_embed(title, desc, color)
+            title, color = "Time's Up!", DARK
+            desc = f"The web went quiet. My number was **{self.secret}**. 🕸️"
+        embed = web_embed(title, desc, color)
         if self.guesses:
             lines = [f"**{n}** — {hint}" for n, hint in self.guesses[-15:]]
             embed.add_field(name=f"Guesses ({len(self.guesses)})", value="\n".join(lines), inline=False)
@@ -81,7 +81,7 @@ class GuessGame(discord.ui.View):
             return await _err(interaction, f"Enter a whole number from {MIN_NUM} to {MAX_NUM}.")
         n = int(raw)
         if any(n == g[0] for g in self.guesses):
-            return await _err(interaction, f"You already guessed **{n}**. Try a different number! 🌙")
+            return await _err(interaction, f"You already guessed **{n}**. Try a different number! 🕷️")
 
         if n == self.secret:
             self.guesses.append((n, "✅ Correct!"))
@@ -125,14 +125,14 @@ class GuessGame(discord.ui.View):
             await _err(
                 interaction,
                 f"This game belongs to {self.player.mention}. "
-                "Start your own with `/guess`! 🌙"
+                "Start your own with `/guess`! 🕷️"
             )
             return False
         return True
 
     @discord.ui.button(
         label="Guess",
-        emoji="✨",
+        emoji="🕸️",
         style=discord.ButtonStyle.secondary
     )
     async def guess_button(
@@ -164,7 +164,7 @@ class Games(commands.Cog):
     @app_commands.command(name="guess", description="Play a number guessing game (1-100)")
     async def guess(self, interaction: discord.Interaction):
         if interaction.user.id in self.active:
-            return await _err(interaction, "You already have a game running! Finish it or press **Give up**. 🌙")
+            return await _err(interaction, "You already have a game running! Finish it or press **Give up**. 🕷️")
         game = GuessGame(self, interaction.user)
         self.active.add(interaction.user.id)
         await interaction.response.send_message(embed=game.build_embed(), view=game)
