@@ -902,7 +902,7 @@ header{gap:12px}header #title{min-width:0;overflow:hidden;text-overflow:ellipsis
   <small>We only read your name and the list of servers you manage.</small><div id="loginErr" class="err"></div>
 </div></section>
 <section id="app" class="hide">
-  <header><img class="logo" src="/spidey-pfp.jpg?v=2" alt=""><b id="title">Spidey Dashboard</b>
+  <header><img class="logo" id="hlogo" src="/spidey-pfp.jpg?v=2" alt=""><b id="title">Spidey Dashboard</b>
     <button class="ib" id="fsbtn" aria-label="Search features"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
     <div class="fs" id="fs"><input id="fsearch" type="search" placeholder="Search features (press /)" autocomplete="off"><div class="fsres" id="fsres"></div></div>
     <div class="um" id="um"><button class="avb" id="avb" aria-label="Account menu"><img class="av" id="uav" alt=""></button>
@@ -954,13 +954,14 @@ const DESC={rroles:'Let members pick their own roles with buttons, a menu or emo
 const GROUPS=[['',['overview']],['Modules',['automod','welcome','leave','joinroles','rroles','invites','leveling','moderation','utility']],['Tickets',['tickets','panels','otickets']],['Insights',['board','inviters','cases']],['Tools',['messages','giveaways','announce']]];
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!==undefined)e.textContent=x;return e};
 const when=t=>new Date(t*1000).toLocaleString([], {dateStyle:'medium',timeStyle:'short'});
+function setHL(g){const h=$('hlogo');h.onerror=()=>{h.onerror=null;h.src='/spidey-pfp.jpg?v=2'};h.src=g&&g.icon?`https://cdn.discordapp.com/icons/${g.id}/${g.icon}.png?size=64`:'/spidey-pfp.jpg?v=2'}
 async function openGuild(g){
   $('servers').innerHTML='';$('servers').append(spl('Opening '+g.name));
   try{[META,OV]=await Promise.all([api('/api/guilds/'+g.id),api(`/api/guilds/${g.id}/overview`)])}catch(e){alert(e.message);loadServers();return}
   G=g;VAL=clone(META.values);ORIG=clone(META.values);
   const have=new Set(['overview','rroles','giveaways','inviters','messages','panels','otickets','board','cases','announce',...SCHEMA.filter(s=>VAL[s.id]).map(s=>s.id)]);
   TABS=GROUPS.flatMap(([,ids])=>ids.filter(i=>have.has(i)).map(i=>[i,TITLES[i]]));TAB='overview';CTL=null;
-  $('picker').classList.add('hide');$('panel').classList.remove('hide');$('title').textContent=g.name;$('fs').classList.add('on');
+  $('picker').classList.add('hide');$('panel').classList.remove('hide');$('title').textContent=g.name;$('fs').classList.add('on');setHL(g);
   const nv=$('nav');nv.innerHTML='';
   const nh=el('div','nsrv'),ni=g.icon?el('img'):el('i','',g.name[0]);if(g.icon){ni.src=`https://cdn.discordapp.com/icons/${g.id}/${g.icon}.png?size=64`;ni.alt=''}
   const nt=el('div'),bk=el('button','btn ghost sm','Switch');nt.append(el('b','',g.name),el('small','',`${OV.stats.members} members`));bk.onclick=goBack;nh.append(ni,nt,bk);nv.append(nh);
@@ -1035,7 +1036,7 @@ $('save').onclick=async()=>{if(busy)return;busy=true;const b=$('bar');b.classLis
     setTimeout(()=>{if(!cur().dirty()){b.classList.remove('show');setTimeout(()=>b.classList.remove('ok'),400)}},1700)}
   catch(e){busy=false;b.classList.remove('saving');b.classList.add('bad');$('popmsg').textContent=e.message}};
 $('reset').onclick=()=>{if(busy)return;cur().reset();touch()};
-function goBack(){drawer(false);if(cur().dirty()&&!confirm('Discard unsaved changes?'))return;CTL=null;PREV=null;$('fs').classList.remove('on');$('bar').classList.remove('show');$('panel').classList.add('hide');$('picker').classList.remove('hide');$('title').textContent='Spidey Dashboard';loadServers()}
+function goBack(){drawer(false);if(cur().dirty()&&!confirm('Discard unsaved changes?'))return;CTL=null;PREV=null;$('fs').classList.remove('on');$('bar').classList.remove('show');$('panel').classList.add('hide');$('picker').classList.remove('hide');$('title').textContent='Spidey Dashboard';setHL(null);loadServers()}
 $('fields').addEventListener('input',touch);$('fields').addEventListener('change',touch);
 addEventListener('beforeunload',e=>{if(cur().dirty()){e.preventDefault();e.returnValue=''}});
 function countUp(n,v){const num=parseFloat(v);if(isNaN(num))return;const suf=String(v).replace(/[\d.]/g,''),t0=performance.now();
