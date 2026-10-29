@@ -17,6 +17,7 @@ def _tsave(d):
     with open(_TF, "w", encoding="utf8") as f: json.dump(d, f, indent=1)
 
 # ================= settings <-> your cogs =================
+from theme import safe_dm
 from automod import MODULES   # your automod.py
 
 def F(key, label, type, hint="", path=None, group="", **kw):
@@ -59,6 +60,7 @@ SECTIONS = [
       fields=[
         F("welcome_enabled", "Send welcome messages", "bool", group="Join"),
         F("welcome_channel", "Welcome channel", "channel", group="Join"),
+        F("welcome_dm", "Also DM the welcome message to new members", "bool", group="Join"),
         F("welcome_text", "Text above the embed", "text", "The only part that can ping the new member", max=500, group="Join"),
         F("welcome_title", "Embed title", "text", max=200, group="Join"),
         F("welcome_message", "Embed message", "area", "{user} {name} {server} {count} {line}", max=1800, group="Join"),
@@ -1408,6 +1410,11 @@ class Giveaways(commands.Cog):
             if msg: await ch.send(txt, reference=msg)
             else: await ch.send(txt)
         except discord.HTTPException: pass
+        for x in d["winners_ids"]:      # DM every winner
+            try:
+                m = guild.get_member(int(x))
+                if m: await safe_dm(m, "You won! \U0001F389", f"**Server:** {guild.name}\n**Prize:** {d['prize']}", BLUE)
+            except Exception: pass
 
     @tasks.loop(seconds=15)
     async def loop(self):

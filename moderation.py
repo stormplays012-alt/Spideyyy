@@ -11,7 +11,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from theme import web_embed, RED, BLUE, DARK
+from theme import web_embed, RED, BLUE, DARK, safe_dm
 
 DATA_FILE = "moderation.json"
 DEFAULT_REASON = "No reason provided"
@@ -336,6 +336,7 @@ class Moderation(commands.Cog):
         except discord.HTTPException as e:
             return await fail(interaction, e.text)
         case = await self.record(interaction.guild, "unmute", member.id, interaction.user.id, reason)
+        await self.dm(member, "You were unmuted 🔊", interaction.guild, reason)
         await interaction.response.send_message(embed=self.result("Web Removed!", member, reason, case, color=BLUE))
 
     # ================================================================ WARNINGS
@@ -373,6 +374,10 @@ class Moderation(commands.Cog):
                 self.store.save()
                 await self.record(interaction.guild, "delwarn", c["user"], interaction.user.id,
                                   f"Removed warning #{case_id}")
+                m = interaction.guild.get_member(c["user"])
+                if m:
+                    await self.dm(m, "A warning was removed ✅", interaction.guild, f"Warning #{case_id} was cleared",
+                                  f"**Active warnings left:** {self.warn_count(interaction.guild.id, m.id)}")
                 return await interaction.response.send_message(embed=web_embed(
                     "Warning Removed!", f"Warning **#{case_id}** for <@{c['user']}> was cleared. 🕸️", BLUE))
         await fail(interaction, "No active warning with that case number.")
@@ -389,6 +394,7 @@ class Moderation(commands.Cog):
         self.store.save()
         await self.record(interaction.guild, "clearwarns", member.id, interaction.user.id,
                           f"Cleared {count} warning(s)")
+        await self.dm(member, "Your warnings were cleared ✅", interaction.guild, f"{count} warning(s) cleared")
         await interaction.response.send_message(embed=web_embed(
             "Slate Wiped Clean!", f"Cleared **{count}** warning(s) for {member.mention}. 🕸️", BLUE))
 
@@ -565,6 +571,8 @@ class Moderation(commands.Cog):
             return await fail(interaction, e.text)
         text = f"{member.mention} is now **{nickname}** 🕷️" if nickname else f"{member.mention}'s nickname was reset."
         await interaction.response.send_message(embed=web_embed("Name Respun!", text, BLUE))
+        await self.dm(member, "Your nickname was changed ✏️", interaction.guild,
+                      f"Changed by {interaction.user.display_name}", f"**New nickname:** {nickname or 'reset'}")
 
     @app_commands.command(name="addrole", description="Give a role to a member")
     @app_commands.describe(member="Who?", role="Which role?")
@@ -578,6 +586,8 @@ class Moderation(commands.Cog):
             return await fail(interaction, e.text)
         await interaction.response.send_message(embed=web_embed(
             "Role Spun!", f"Gave {role.mention} to {member.mention} 🕸️", BLUE))
+        await self.dm(member, "You got a role 🎭", interaction.guild, f"Given by {interaction.user.display_name}",
+                      f"**Role:** {role.name}")
 
     @app_commands.command(name="removerole", description="Remove a role from a member")
     @app_commands.describe(member="Who?", role="Which role?")
@@ -591,6 +601,8 @@ class Moderation(commands.Cog):
             return await fail(interaction, e.text)
         await interaction.response.send_message(embed=web_embed(
             "Role Snipped!", f"Removed {role.mention} from {member.mention} 🕸️", BLUE))
+        await self.dm(member, "A role was removed 🎭", interaction.guild, f"Removed by {interaction.user.display_name}",
+                      f"**Role:** {role.name}")
 
     @app_commands.command(name="userinfo", description="Show info about a member")
     @app_commands.describe(member="Who? (defaults to you)")

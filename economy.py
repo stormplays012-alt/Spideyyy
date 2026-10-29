@@ -10,7 +10,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from theme import web_embed, RED, BLUE, DARK
+from theme import web_embed, RED, BLUE, DARK, safe_dm
 from moderation import fail
 
 DATA_FILE = "economy.json"
@@ -323,6 +323,9 @@ class Economy(commands.Cog):
         await interaction.response.send_message(embed=web_embed(
             "Webs Shared!", f"{interaction.user.mention} gave **{value:,}** webs {EMOJI} to {member.mention}! 🕷️\n"
                             f"💰 **Your wallet:** {self.wallet(gid, interaction.user.id):,}", BLUE))
+        await safe_dm(member, "You received webs! 🕸️",
+                      f"**{interaction.user.display_name}** gave you **{value:,}** webs {EMOJI}\n"
+                      f"**Server:** {interaction.guild.name}\n💰 **Your wallet:** {self.wallet(gid, member.id):,}", BLUE)
 
     @app_commands.command(name="richest", description="The richest heroes across Spidey servers")
     @app_commands.guild_only()
@@ -524,6 +527,8 @@ class Economy(commands.Cog):
         self.add(interaction.guild.id, member.id, amount)
         await interaction.response.send_message(embed=web_embed(
             "Webs Given!", f"Gave **{amount:,}** webs to {member.mention}.", BLUE))
+        await safe_dm(member, "You received webs! 🕸️",
+                      f"You were given **{amount:,}** webs {EMOJI}\n**Server:** {interaction.guild.name}", BLUE)
 
     @ecoadmin.command(name="take", description="Bot owner only: take webs from a member")
     async def admin_take(self, interaction: discord.Interaction, member: discord.Member,
@@ -533,6 +538,8 @@ class Economy(commands.Cog):
         self.add(interaction.guild.id, member.id, -amount)
         await interaction.response.send_message(embed=web_embed(
             "Webs Taken!", f"Took up to **{amount:,}** webs from {member.mention}.", DARK))
+        await safe_dm(member, "Webs were taken 🕸️",
+                      f"Up to **{amount:,}** webs were taken from you.\n**Server:** {interaction.guild.name}", DARK)
 
     @ecoadmin.command(name="reset", description="Bot owner only: reset a member's economy data")
     async def admin_reset(self, interaction: discord.Interaction, member: discord.Member):

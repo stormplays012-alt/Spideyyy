@@ -15,3 +15,14 @@ def web_embed(title: str, description: str = "", color: int = RED) -> discord.Em
     )
     embed.set_footer(text=FOOTER)
     return embed
+
+
+async def safe_dm(user, title: str, description: str = "", color: int = BLUE):
+    """DM a user. Never raises: closed DMs, bots and missing users are silently ignored."""
+    try:
+        if user is None or getattr(user, "bot", False):
+            return False
+        await user.send(embed=web_embed(title, description, color))
+        return True
+    except Exception:
+        return False

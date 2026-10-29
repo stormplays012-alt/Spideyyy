@@ -12,7 +12,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from theme import web_embed, RED, BLUE, DARK
+from theme import web_embed, RED, BLUE, DARK, safe_dm
 from moderation import parse_duration, fmt_duration, fail
 
 DATA_FILE = "automod.json"
@@ -254,6 +254,9 @@ class AutoMod(commands.Cog):
                     delete_after=8)
             except discord.HTTPException:
                 pass
+            await safe_dm(member, "AutoMod warning ⚠️",
+                          f"**Server:** {guild.name}\n**Reason:** {reason}\n"
+                          f"**Strike {min(count, p['strikes'])}/{p['strikes']}** • module: `{module}`", DARK)
 
         if count >= p["strikes"] and p["action"] != "none":
             strikes.clear()
@@ -262,6 +265,9 @@ class AutoMod(commands.Cog):
     async def punish(self, message: discord.Message, member: discord.Member, p: dict, module: str):
         guild, action = message.guild, p["action"]
         why = f"AutoMod: reached {p['strikes']} strikes (last: {module})"
+        if action in ("kick", "ban") and guild.me.top_role > member.top_role and member.id != guild.owner_id:
+            await safe_dm(member, "You were kicked 🥾" if action == "kick" else "You were banned 🔨",
+                          f"**Server:** {guild.name}\n**Reason:** {why}", DARK)   # before it happens: no DM possible afterwards
         try:
             if action == "timeout":
                 secs = min(p["duration"], 28 * 86400)
@@ -288,6 +294,9 @@ class AutoMod(commands.Cog):
         if mod:
             await mod.record(guild, {"timeout": "mute"}.get(action, action), member.id,
                              self.bot.user.id, why)
+        if action == "timeout":
+            await safe_dm(member, "You were muted 🤐", f"**Server:** {guild.name}\n**Reason:** {why}\n"
+                                                      f"**Duration:** {fmt_duration(secs)}", DARK)
         try:
             await message.channel.send(embed=web_embed(
                 "Web Justice!", f"{member.mention} was **{label}**{extra} for repeated violations. 🕷️", RED))

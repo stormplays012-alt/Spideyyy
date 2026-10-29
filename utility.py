@@ -17,7 +17,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from theme import web_embed, RED, BLUE, DARK
+from theme import web_embed, RED, BLUE, DARK, safe_dm
 from moderation import parse_duration, fmt_duration, fail
 
 DATA_FILE = "utility.json"
@@ -574,6 +574,8 @@ class Utility(commands.Cog):
             announce = "Nobody entered the giveaway. 🕸️"
         await msg.edit(embed=web_embed("GIVEAWAY ENDED", text, DARK))
         await msg.channel.send(announce, reference=msg)
+        for w in winners or []:
+            await safe_dm(w, "You won! 🎉", f"**Server:** {msg.guild.name}\n**Prize:** {g['prize']}", BLUE)
 
     @giveaway.command(name="end", description="End a giveaway early")
     @app_commands.describe(message_id="The giveaway message ID")
@@ -593,6 +595,8 @@ class Utility(commands.Cog):
                 if not winners:
                     return await fail(interaction, "No valid entries to pick from.")
                 names = ", ".join(w.mention for w in winners)
+                for w in winners:
+                    await safe_dm(w, "You won! 🎉", f"**Server:** {interaction.guild.name}\n**Prize:** {g['prize']}", BLUE)
                 return await interaction.response.send_message(f"🎉 New winner(s) for **{g['prize']}**: {names}")
         await fail(interaction, "No ended giveaway with that message ID.")
 

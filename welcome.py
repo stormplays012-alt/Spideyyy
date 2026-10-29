@@ -19,6 +19,7 @@ DEFAULTS = {
     "welcome_enabled": True,
     "goodbye_enabled": True,
     "auto_roles_enabled": True,
+    "welcome_dm": True,          # also DM the welcome message to the new member
     "welcome_message": "{line}\n\nWelcome {user} to **{server}**! You're member **#{count}**. 🕷️",
     "goodbye_channel": None,
     "goodbye_message": "**{name}** swung out of the web. 🕸️ We're now **{count}** members.",
@@ -670,6 +671,16 @@ class Welcome(commands.Cog):
                                    allowed_mentions=discord.AllowedMentions(users=[member], roles=False, everyone=False))
             except discord.HTTPException:
                 pass
+
+        # same welcome message, sent privately to the new member too
+        if c.get("welcome_enabled", True) and c.get("welcome_dm", True):
+            try:
+                content, embed, files = build_welcome(member, c)   # fresh files (a File can only be sent once)
+                if not content:
+                    content = f"👋 Welcome to **{member.guild.name}**!"
+                await member.send(content=content, embed=embed, files=files)
+            except Exception:
+                pass    # DMs closed / any error: never break the join flow
 
     @commands.Cog.listener()
     async def on_member_remove(self, member: discord.Member):
