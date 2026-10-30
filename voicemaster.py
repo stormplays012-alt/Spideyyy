@@ -20,6 +20,8 @@ DEFAULT_STATE = {
     "hidden": False,
     "permitted": [],
     "rejected": [],
+    "bitrate": 0,      # 0 = server default
+    "region": "",      # "" = automatic
 }
 
 
@@ -138,10 +140,16 @@ def panel_embed(owner: discord.Member, room: dict = None, channel=None,
         count = len(members)
     limit = st["limit"]
 
+    kbps = (channel.bitrate // 1000) if channel is not None else 64
+    region = (getattr(channel, "rtc_region", None) if channel is not None else None) or "auto"
+    region = str(region)
+
     e = web_embed(
         "Web Control Panel",
-        "Use the buttons below to run your web. 🕷️\n"
-        "Only the **owner** can change settings • anyone in the room can press **Info**.",
+        "Run your web from the two menus below. 🕷️\n"
+        "⚙️ **Room Settings** • rename, limit, status, bitrate, region, invite, reset\n"
+        "🔐 **Privacy & Members** • lock, hide, permit, reject, kick, transfer\n"
+        "*Only the owner can change things • anyone can use Info.*",
         color,
     )
     e.set_author(name=f"{owner.display_name}'s Web", icon_url=owner.display_avatar.url)
@@ -150,9 +158,13 @@ def panel_embed(owner: discord.Member, room: dict = None, channel=None,
     e.add_field(name="🔐 Access", value="🔒 Locked" if locked else "🔓 Open", inline=True)
     e.add_field(name="👁️ Visibility", value="👻 Hidden" if hidden else "👁️ Visible", inline=True)
     e.add_field(name="👥 Capacity", value=f"{count}/{limit}" if limit else f"{count} • unlimited", inline=True)
+    e.add_field(name="🎚️ Bitrate", value=f"{kbps} kbps", inline=True)
+    e.add_field(name="🌍 Region", value=REGION_NAMES.get(region, region.title()), inline=True)
     e.add_field(name="🎙️ Status", value=(st["status"] or "—")[:100], inline=True)
     e.add_field(name="🎟️ Guest list",
-                value=f"✅ {len(st['permitted'])} permitted • 🚫 {len(st['rejected'])} blocked", inline=True)
+                value=f"✅ {len(st['permitted'])} • 🚫 {len(st['rejected'])}", inline=True)
+    created = f"<t:{int(channel.created_at.timestamp())}:R>" if channel is not None else "just now"
+    e.add_field(name="🕐 Created", value=created, inline=True)
     e.set_image(url=f"attachment://{BANNER_NAME}")
     e.set_footer(text=f"🕸️ Spidey • {channel.name}" if channel is not None else "🕸️ Spidey • Your friendly neighborhood bot")
     return e
@@ -214,6 +226,56 @@ class PickView(discord.ui.View):
         await self.handler(interaction, self.channel_id, member)
 
 
+REGIONS = [
+    ("auto", "Automatic", "🌐"), ("brazil", "Brazil", "🇧🇷"), ("hongkong", "Hong Kong", "🇭🇰"),
+    ("india", "India", "🇮🇳"), ("japan", "Japan", "🇯🇵"), ("rotterdam", "Rotterdam", "🇳🇱"),
+    ("russia", "Russia", "🇷🇺"), ("singapore", "Singapore", "🇸🇬"), ("southafrica", "South Africa", "🇿🇦"),
+    ("sydney", "Sydney", "🇦🇺"), ("us-central", "US Central", "🇺🇸"), ("us-east", "US East", "🇺🇸"),
+    ("us-south", "US South", "🇺🇸"), ("us-west", "US West", "🇺🇸"),
+]
+REGION_NAMES = {k: n for k, n, _ in REGIONS}
+BITRATES = [(8, "Tiny"), (16, "Low"), (32, "Light"), (64, "Standard"), (96, "Good"),
+            (128, "High (Boost level 1)"), (256, "Very high (Boost level 2)"), (384, "Max (Boost level 3)")]
+
+
+class ChoiceView(discord.ui.View):
+    """Ephemeral single-choice dropdown (bitrate / region). Owner only."""
+
+    def __init__(self, handler, channel_id, owner_id, options, placeholder):
+        super().__init__(timeout=60)
+        self.handler, self.channel_id, self.owner_id = handler, channel_id, owner_id
+        self.select = discord.ui.Select(placeholder=placeholder, min_values=1, max_values=1, options=options)
+        self.select.callback = self.picked
+        self.add_item(self.select)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.owner_id
+
+    async def picked(self, interaction: discord.Interaction):
+        self.stop()
+        await self.handler(interaction, self.channel_id, self.select.values[0])
+
+
+class ConfirmView(discord.ui.View):
+    def __init__(self, handler, channel_id, owner_id):
+        super().__init__(timeout=60)
+        self.handler, self.channel_id, self.owner_id = handler, channel_id, owner_id
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return interaction.user.id == self.owner_id
+
+    @discord.ui.button(label="Yes, reset it", emoji="♻️", style=discord.ButtonStyle.danger)
+    async def yes(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.stop()
+        await self.handler(interaction, self.channel_id)
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def no(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.stop()
+        await interaction.response.edit_message(
+            embed=web_embed("Cancelled", "Nothing was changed. 🕸️", DARK), view=None)
+
+
 # ------------------------------------------------------------------ control panel
 async def run_action(interaction: discord.Interaction, action: str):
     """Shared by the button panel and the old dropdown panel."""
@@ -247,6 +309,31 @@ async def run_action(interaction: discord.Interaction, action: str):
         return await cog.toggle_lock(interaction, channel_id)
     if action == "hide":
         return await cog.toggle_hide(interaction, channel_id)
+    if action == "invite":
+        return await cog.invite_link(interaction, channel_id)
+    if action == "clear":
+        return await cog.clear_lists(interaction, channel_id)
+
+    if action == "bitrate":
+        limit_k = int(interaction.guild.bitrate_limit // 1000)
+        opts = [discord.SelectOption(label=f"{k} kbps", description=d, value=str(k))
+                for k, d in BITRATES if k <= limit_k][:25]
+        return await interaction.response.send_message(
+            embed=web_embed("Voice Quality", "Higher bitrate = clearer audio. The max depends on this "
+                                             f"server's Boost level (up to **{limit_k} kbps** here). 🎚️", DARK),
+            view=ChoiceView(cog.set_bitrate, channel_id, interaction.user.id, opts, "🎚️ Choose a bitrate..."),
+            ephemeral=True)
+    if action == "region":
+        opts = [discord.SelectOption(label=n, value=k, emoji=e) for k, n, e in REGIONS]
+        return await interaction.response.send_message(
+            embed=web_embed("Voice Region", "Pick the server closest to everyone for the lowest lag. 🌍", DARK),
+            view=ChoiceView(cog.set_region, channel_id, interaction.user.id, opts, "🌍 Choose a region..."),
+            ephemeral=True)
+    if action == "reset":
+        return await interaction.response.send_message(
+            embed=web_embed("Reset Room?", "This restores the default name, limit, status, bitrate and region, "
+                                           "unlocks and unhides the room, and clears the permit/block lists. ♻️", DARK),
+            view=ConfirmView(cog.reset_room, channel_id, interaction.user.id), ephemeral=True)
 
     handlers = {
         "permit": (cog.permit, "Who can join?"),
@@ -277,8 +364,8 @@ class _PanelBase(discord.ui.View):
 B = discord.ButtonStyle
 
 
-class ControlPanel(_PanelBase):
-    """Button panel. Pass the room state to get the live look (Lock/Unlock, Hide/Show, Claim enabled)."""
+class ButtonControlPanel(_PanelBase):
+    """Previous button panel. Only registered so panels already posted in live rooms keep working."""
 
     def __init__(self, state: dict = None, owner_present: bool = True):
         super().__init__(timeout=None)
@@ -372,6 +459,89 @@ class LegacyControlPanel(_PanelBase):
         await run_action(interaction, select.values[0])
 
 
+class ControlPanel(_PanelBase):
+    """Two-dropdown panel: Room Settings + Privacy & Members. Pass the room state for live labels."""
+
+    def __init__(self, state: dict = None, owner_present: bool = True):
+        super().__init__(timeout=None)
+        # options are shared between instances by discord.py, so copy before editing labels
+        self.members_menu.options = [
+            discord.SelectOption(label=o.label, value=o.value, emoji=o.emoji, description=o.description)
+            for o in self.members_menu.options
+        ]
+        if state is None:
+            return
+        for o in self.members_menu.options:
+            if o.value == "lock":
+                o.label = "Unlock Room" if state["locked"] else "Lock Room"
+                o.description = ("Currently locked - let everyone join again" if state["locked"]
+                                 else "Stop new people from joining")
+            elif o.value == "hide":
+                o.label = "Show Room" if state["hidden"] else "Hide Room"
+                o.description = ("Currently hidden - make it visible again" if state["hidden"]
+                                 else "Hide the room from everyone else")
+            elif o.value == "claim":
+                o.description = ("Owner is away - take over this room!" if not owner_present
+                                 else "Only works after the owner has left")
+
+    async def _go(self, interaction: discord.Interaction, action: str):
+        await run_action(interaction, action)
+        try:        # re-sending the panel also resets the dropdown so the same option can be picked again
+            cog = interaction.client.get_cog("VoiceMaster")
+            if cog:
+                cog.schedule_refresh(interaction.channel.id)
+        except Exception:
+            pass
+
+    @discord.ui.select(
+        placeholder="⚙️ Room Settings...", custom_id="vm:settings", min_values=1, max_values=1, row=0,
+        options=[
+            discord.SelectOption(label="Rename Room", emoji="📝", value="rename",
+                                 description="Change the room's name"),
+            discord.SelectOption(label="Member Limit", emoji="👥", value="limit",
+                                 description="Set how many people can join (0 = unlimited)"),
+            discord.SelectOption(label="Room Status", emoji="🎙️", value="status",
+                                 description="Show a short status under the channel name"),
+            discord.SelectOption(label="Bitrate", emoji="🎚️", value="bitrate",
+                                 description="Change the audio quality"),
+            discord.SelectOption(label="Voice Region", emoji="🌍", value="region",
+                                 description="Pick the closest voice server for less lag"),
+            discord.SelectOption(label="Invite Link", emoji="🔗", value="invite",
+                                 description="Create a 1-hour invite straight to this room"),
+            discord.SelectOption(label="Reset Room", emoji="♻️", value="reset",
+                                 description="Restore every setting to default"),
+        ],
+    )
+    async def settings_menu(self, interaction: discord.Interaction, select: discord.ui.Select):
+        await self._go(interaction, select.values[0])
+
+    @discord.ui.select(
+        placeholder="🔐 Privacy & Members...", custom_id="vm:members", min_values=1, max_values=1, row=1,
+        options=[
+            discord.SelectOption(label="Lock Room", emoji="🔒", value="lock",
+                                 description="Stop new people from joining"),
+            discord.SelectOption(label="Hide Room", emoji="👻", value="hide",
+                                 description="Hide the room from everyone else"),
+            discord.SelectOption(label="Permit Member", emoji="✅", value="permit",
+                                 description="Let someone in even when locked or hidden"),
+            discord.SelectOption(label="Reject Member", emoji="🚫", value="reject",
+                                 description="Block someone from joining or seeing the room"),
+            discord.SelectOption(label="Kick Member", emoji="🥾", value="kick",
+                                 description="Remove someone from the room right now"),
+            discord.SelectOption(label="Clear Lists", emoji="🧹", value="clear",
+                                 description="Empty the permit and block lists"),
+            discord.SelectOption(label="Transfer Ownership", emoji="👑", value="transfer",
+                                 description="Hand the room over to someone inside"),
+            discord.SelectOption(label="Claim Room", emoji="🕷️", value="claim",
+                                 description="Only works after the owner has left"),
+            discord.SelectOption(label="Room Information", emoji="ℹ️", value="info",
+                                 description="See every setting (anyone can use this)"),
+        ],
+    )
+    async def members_menu(self, interaction: discord.Interaction, select: discord.ui.Select):
+        await self._go(interaction, select.values[0])
+
+
 # ------------------------------------------------------------------ the cog
 class VoiceMaster(commands.Cog):
     voicemaster = app_commands.Group(
@@ -389,6 +559,7 @@ class VoiceMaster(commands.Cog):
 
     async def cog_load(self):
         self.bot.add_view(ControlPanel())
+        self.bot.add_view(ButtonControlPanel())
         self.bot.add_view(LegacyControlPanel())
 
     # ---------- admin commands
@@ -511,6 +682,13 @@ class VoiceMaster(commands.Cog):
 
         if state["status"]:
             await safe_edit(channel, status=state["status"])
+        extra = {}
+        if state.get("bitrate"):
+            extra["bitrate"] = min(int(state["bitrate"]), int(guild.bitrate_limit))
+        if state.get("region"):
+            extra["rtc_region"] = state["region"]
+        if extra:
+            await safe_edit(channel, **extra)
 
         room = self.store.get_room(channel.id)
         embed = panel_embed(member, room, channel, present=True, count=max(1, len(channel.members)))
@@ -774,6 +952,92 @@ class VoiceMaster(commands.Cog):
             return await _reply(interaction, "Web Snagged!", e.text, DARK)
         await _reply(interaction, "Web Claimed!", "You're the new owner now. 👑")
 
+    async def set_bitrate(self, interaction, channel_id, value):
+        await interaction.response.defer(ephemeral=True)
+        room, channel = self._room(interaction, channel_id)
+        if not room:
+            return await self._not_owner(interaction)
+        bps = int(value) * 1000
+        err = await safe_edit(channel, bitrate=bps)
+        if err:
+            return await _reply(interaction, "Web Snagged!", err, DARK)
+        room["state"]["bitrate"] = bps
+        self._commit(room)
+        await _reply(interaction, "Bitrate Updated!", f"Audio quality is now **{value} kbps** 🎚️")
+
+    async def set_region(self, interaction, channel_id, value):
+        await interaction.response.defer(ephemeral=True)
+        room, channel = self._room(interaction, channel_id)
+        if not room:
+            return await self._not_owner(interaction)
+        err = await safe_edit(channel, rtc_region=None if value == "auto" else value)
+        if err:
+            return await _reply(interaction, "Web Snagged!", err, DARK)
+        room["state"]["region"] = "" if value == "auto" else value
+        self._commit(room)
+        await _reply(interaction, "Region Updated!",
+                     f"Voice region is now **{REGION_NAMES.get(value, value)}** 🌍\n"
+                     "Members may briefly reconnect while it switches.")
+
+    async def invite_link(self, interaction, channel_id):
+        await interaction.response.defer(ephemeral=True)
+        room, channel = self._room(interaction, channel_id)
+        if not room:
+            return await self._not_owner(interaction)
+        try:
+            inv = await channel.create_invite(max_age=3600, max_uses=0, unique=True,
+                                              reason=f"Spidey VoiceMaster invite by {interaction.user}")
+        except discord.HTTPException:
+            return await _reply(interaction, "Web Snagged!",
+                                "I couldn't create an invite. I need the **Create Invitation** permission.", DARK)
+        note = ""
+        if room["state"]["locked"] or room["state"]["hidden"]:
+            note = "\n⚠️ The room is locked/hidden, so people still need to be **permitted** to get in."
+        await _reply(interaction, "Invite Ready!", f"{inv.url}\nValid for **1 hour**. 🔗{note}", BLUE)
+
+    async def clear_lists(self, interaction, channel_id):
+        await interaction.response.defer(ephemeral=True)
+        room, channel = self._room(interaction, channel_id)
+        if not room:
+            return await self._not_owner(interaction)
+        st = room["state"]
+        ids = list(dict.fromkeys(st["permitted"] + st["rejected"]))
+        for uid in ids:
+            m = interaction.guild.get_member(uid)
+            if m:
+                try:
+                    await channel.set_permissions(m, overwrite=None)
+                except discord.HTTPException:
+                    pass
+        st["permitted"], st["rejected"] = [], []
+        self._commit(room)
+        await _reply(interaction, "Lists Cleared!",
+                     f"Removed **{len(ids)}** member(s) from the permit and block lists. 🧹")
+
+    async def reset_room(self, interaction, channel_id):
+        await interaction.response.defer(ephemeral=True)
+        room, channel = self._room(interaction, channel_id)
+        if not room:
+            return await self._not_owner(interaction)
+        owner = interaction.user          # only the owner can get here (checked by _room)
+        fresh = copy.deepcopy(DEFAULT_STATE)
+        err = await safe_edit(
+            channel,
+            name=f"🕷️ {owner.display_name}'s Web"[:100],
+            user_limit=0,
+            overwrites=build_overwrites(interaction.guild, owner, fresh),
+            bitrate=min(64000, int(interaction.guild.bitrate_limit)),
+            rtc_region=None,
+        )
+        if err:
+            return await _reply(interaction, "Web Snagged!", err, DARK)
+        await safe_edit(channel, status=None)
+        st = room["state"]
+        st.clear()
+        st.update(fresh)
+        self._commit(room)
+        await _reply(interaction, "Room Reset!", "Everything is back to default. ♻️")
+
     async def info(self, interaction, channel_id):
         room = self.store.get_room(channel_id)
         if not room:
@@ -786,6 +1050,8 @@ class VoiceMaster(commands.Cog):
             f"🔒 **Locked:** {'yes' if st['locked'] else 'no'}\n"
             f"👻 **Hidden:** {'yes' if st['hidden'] else 'no'}\n"
             f"📝 **Status:** {st['status'] or 'none'}\n"
+            f"🎚️ **Bitrate:** {(st.get('bitrate') or 0) // 1000 or 'default'}{' kbps' if st.get('bitrate') else ''}\n"
+            f"🌍 **Region:** {REGION_NAMES.get(st.get('region') or 'auto', st.get('region') or 'Automatic')}\n"
             f"✅ **Permitted:** {fmt(st['permitted'])}\n"
             f"🚫 **Rejected:** {fmt(st['rejected'])}"
         )
