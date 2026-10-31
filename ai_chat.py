@@ -79,13 +79,11 @@ class AIChat(commands.Cog):
         if self.session:
             await self.session.close()
 
-    # ---------- AI call
-    async def ask(self, channel_id: int, user_text: str) -> str:
-        history = self.histories.setdefault(channel_id, [])
-        history.append({"role": "user", "content": user_text})
-        del history[:-MAX_HISTORY]
-
-        deadline = time.monotonic() + TOTAL_DEADLINE
+    # ---------- AI call (shared: chat and /build both use this)
+    async def _complete(self, messages: list, max_tokens: int = MAX_TOKENS,
+                        deadline_s: int = TOTAL_DEADLINE, req_timeout: int = REQUEST_TIMEOUT):
+        """Try every provider/model in order. Returns (text or None, was_busy)."""
+        deadline = time.monotonic() + deadline_s
         busy = False
         dead = set()  # (provider, model) pairs that returned 404/400/401 - skipped from now on
 
@@ -97,16 +95,12 @@ class AIChat(commands.Cog):
                 left = deadline - time.monotonic()
                 if left < 2:
                     break
-                payload = {
-                    "model": model,
-                    "messages": [{"role": "system", "content": SYSTEM}] + history,
-                    "max_tokens": MAX_TOKENS,
-                }
+                payload = {"model": model, "messages": messages, "max_tokens": max_tokens}
                 headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
                 try:
                     async with self.session.post(
                         url, json=payload, headers=headers,
-                        timeout=aiohttp.ClientTimeout(total=min(REQUEST_TIMEOUT, left)),
+                        timeout=aiohttp.ClientTimeout(total=min(req_timeout, left)),
                     ) as resp:
                         data = await resp.json(content_type=None)
                         status = resp.status
@@ -120,10 +114,8 @@ class AIChat(commands.Cog):
                         reply = (data["choices"][0]["message"]["content"] or "").strip()
                     except (KeyError, IndexError, TypeError):
                         reply = ""
-                    reply = NAME_PREFIX.sub("", reply).strip()
                     if reply:
-                        history.append({"role": "assistant", "content": reply})
-                        return reply
+                        return reply, busy
                     continue
 
                 print(f"{name} error {status} ({model}): {data}")
@@ -134,6 +126,18 @@ class AIChat(commands.Cog):
             if len(dead) == len(self.targets) or deadline - time.monotonic() < 2:
                 break
             await asyncio.sleep(1)
+        return None, busy
+
+    async def ask(self, channel_id: int, user_text: str) -> str:
+        history = self.histories.setdefault(channel_id, [])
+        history.append({"role": "user", "content": user_text})
+        del history[:-MAX_HISTORY]
+
+        reply, busy = await self._complete([{"role": "system", "content": SYSTEM}] + history)
+        if reply:
+            reply = NAME_PREFIX.sub("", reply).strip() or reply
+            history.append({"role": "assistant", "content": reply})
+            return reply
 
         history.pop()  # forget the failed question
         if busy:
@@ -154,6 +158,9 @@ class AIChat(commands.Cog):
         if not text:
             text = "Hello!"
         text = text[:MAX_INPUT]
+
+        if text.lower().strip(" !.") in ("undo build", "undo last build"):
+            return  # handled by the server builder
 
         # "@Spidey reset" clears this channel's AI memory (no slash command needed)
         if text.lower().strip(" !.") in ("reset", "forget", "clear"):

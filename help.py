@@ -20,6 +20,7 @@ CATEGORIES = {
     "Welcome":     ("👋", "Welcome", "Welcome messages, auto-roles, verification"),
     "Tickets":     ("🎫", "Tickets", "Private support tickets"),
     "AIChat":      ("🧠", "AI Chat", "Ping @Spidey and ask anything"),
+    "ServerBuilder": ("🏗️", "Server Builder", "AI builds roles, channels and permissions"),
 }
 
 HOME = "__home__"

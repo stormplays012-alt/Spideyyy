@@ -166,14 +166,6 @@ class Utility(commands.Cog):
             embed.add_field(name="Bitrate", value=f"{ch.bitrate // 1000} kbps")
         await interaction.response.send_message(embed=embed)
 
-    @app_commands.command(name="membercount", description="How many members are in this server")
-    @app_commands.guild_only()
-    async def membercount(self, interaction: discord.Interaction):
-        g = interaction.guild
-        bots = sum(1 for m in g.members if m.bot)
-        await interaction.response.send_message(embed=web_embed(
-            "Web Headcount", f"👥 **{g.member_count}** total\n🧑 **{g.member_count - bots}** humans\n🤖 **{bots}** bots", BLUE))
-
     @app_commands.command(name="banner", description="Show someone's profile banner")
     async def banner(self, interaction: discord.Interaction, user: Optional[discord.User] = None):
         user = await self.bot.fetch_user((user or interaction.user).id)

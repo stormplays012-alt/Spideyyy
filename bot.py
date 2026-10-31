@@ -46,6 +46,7 @@ class Spidey(commands.Bot):
         await self.load_extension("minigames")    # 🎲 Mini-games (/game, /guess)
         await self.load_extension("actions")      # 🤗 Actions (/hug /slap /punch /dance, /interact, /react)
         await self.load_extension("ai_chat")      # 🧠 AI Chat (@Spidey <question>)
+        await self.load_extension("server_builder")  # 🏗️ AI Server Builder (/build)
         await self.load_extension("dashboard")    # 🖥️ Web dashboard (load LAST)
         
         await self.tree.sync()
