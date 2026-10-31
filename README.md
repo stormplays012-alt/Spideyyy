@@ -6,6 +6,7 @@
 3. Open the terminal in VS Code (Ctrl + `) and run:
    pip install -r requirements.txt
 4. Set your bot token as the DISCORD_TOKEN environment variable
+   (for AI chat also set GEMINI_API_KEY - free key from https://aistudio.google.com/app/apikey)
 5. Run:
    python bot.py
 
@@ -21,6 +22,7 @@
   should moderate, otherwise kick/ban/mute/role commands will fail.
 
 ## Features
+- AI Chat:      just ping the bot: @Spidey can you help me?   (/resetchat clears the channel memory)
 - Help:         /help  (one dropdown menu with every category, updates itself)
 - VoiceMaster:  /voicemaster setup  (join-to-create rooms + control panel)
 - Moderation:   (see /help)

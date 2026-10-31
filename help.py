@@ -19,6 +19,7 @@ CATEGORIES = {
     "Leveling":    ("⭐", "Leveling", "XP, ranks and leaderboards"),
     "Welcome":     ("👋", "Welcome", "Welcome messages, auto-roles, verification"),
     "Tickets":     ("🎫", "Tickets", "Private support tickets"),
+    "AIChat":      ("🧠", "AI Chat", "Ping @Spidey and ask anything"),
 }
 
 HOME = "__home__"
