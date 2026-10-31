@@ -7,7 +7,7 @@ import discord
 from discord.ext import commands
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")  # change via env var if Google retires it
+MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")  # change via env var if Google retires it
 
 SYSTEM = (
     "You are Spidey, a friendly, witty web-slinging hero living in a Discord server. "
