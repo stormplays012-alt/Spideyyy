@@ -7,7 +7,12 @@ import discord
 from discord.ext import commands
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")  # change via env var if Google retires it
+# Main model first, then backups used if the main one is busy (503) or unavailable (404).
+# Override with env vars, e.g. GEMINI_MODEL=gemini-3.8-flash  GEMINI_BACKUPS=gemini-3.6-flash,gemini-3.5-flash-lite
+MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+BACKUPS = [m.strip() for m in os.getenv("GEMINI_BACKUPS", "gemini-3.6-flash,gemini-3.5-flash-lite").split(",") if m.strip()]
+MODELS = [MODEL] + [m for m in BACKUPS if m != MODEL]
+RETRIES = 2  # extra tries per model when Google says "busy"
 
 SYSTEM = (
     "You are Spidey, a friendly, witty web-slinging hero living in a Discord server. "
@@ -47,37 +52,52 @@ class AIChat(commands.Cog):
         history.append({"role": "user", "content": user_text})
         del history[:-MAX_HISTORY]
 
-        payload = {
-            "model": MODEL,
-            "messages": [{"role": "system", "content": SYSTEM}] + history,
-            "max_tokens": MAX_TOKENS,
-        }
         headers = {"Authorization": f"Bearer {self.key}", "Content-Type": "application/json"}
+        busy = False
 
-        try:
-            async with self.session.post(
-                GEMINI_URL, json=payload, headers=headers,
-                timeout=aiohttp.ClientTimeout(total=30),
-            ) as resp:
-                data = await resp.json(content_type=None)
-                if resp.status == 429:
-                    history.pop()
-                    return "My web is tangled, too many people are talking to me! Try again in a minute. 🕸️"
-                if resp.status != 200:
-                    print(f"Gemini error {resp.status}: {data}")
-                    history.pop()
-                    return "My spider-sense is glitching. Try again in a moment! 🕷️"
-                reply = (data["choices"][0]["message"]["content"] or "").strip()
-        except (aiohttp.ClientError, asyncio.TimeoutError, KeyError, IndexError) as e:
-            print(f"Gemini request failed: {e!r}")
-            history.pop()
-            return "I couldn't reach the web right now. Try again in a moment! 🕷️"
+        for model in MODELS:
+            payload = {
+                "model": model,
+                "messages": [{"role": "system", "content": SYSTEM}] + history,
+                "max_tokens": MAX_TOKENS,
+            }
+            for attempt in range(RETRIES + 1):
+                try:
+                    async with self.session.post(
+                        GEMINI_URL, json=payload, headers=headers,
+                        timeout=aiohttp.ClientTimeout(total=30),
+                    ) as resp:
+                        data = await resp.json(content_type=None)
+                        status = resp.status
+                except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+                    print(f"Gemini request failed ({model}): {e!r}")
+                    busy = True
+                    await asyncio.sleep(1.5)
+                    continue
 
-        if not reply:
-            history.pop()
-            return "Hmm, I got tongue-tied. Ask me again? 🕷️"
-        history.append({"role": "assistant", "content": reply})
-        return reply
+                if status == 200:
+                    try:
+                        reply = (data["choices"][0]["message"]["content"] or "").strip()
+                    except (KeyError, IndexError, TypeError):
+                        reply = ""
+                    if reply:
+                        history.append({"role": "assistant", "content": reply})
+                        return reply
+                    break  # empty answer: try next model
+
+                print(f"Gemini error {status} ({model}): {data}")
+                if status in (429, 500, 502, 503, 504):
+                    busy = True
+                    if attempt < RETRIES:
+                        await asyncio.sleep(1.5 * (attempt + 1))  # wait a bit, then retry same model
+                        continue
+                    break  # still busy: move on to the next model
+                break  # 404 / 400 / 401 etc: no point retrying this model, try the next one
+
+        history.pop()  # forget the failed question
+        if busy:
+            return "My web is crowded right now, too many people are talking to me! Try again in a minute. 🕸️"
+        return "My spider-sense is glitching. Try again in a moment! 🕷️"
 
     # ---------- listen for pings
     @commands.Cog.listener()
