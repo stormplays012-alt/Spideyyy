@@ -22,7 +22,7 @@
   should moderate, otherwise kick/ban/mute/role commands will fail.
 
 ## Features
-- AI Chat:      just ping the bot: @Spidey can you help me?   (/resetchat clears the channel memory)
+- AI Chat:      just ping the bot: @Spidey can you help me?   (@Spidey reset clears the channel memory)
 - Help:         /help  (one dropdown menu with every category, updates itself)
 - VoiceMaster:  /voicemaster setup  (join-to-create rooms + control panel)
 - Moderation:   (see /help)

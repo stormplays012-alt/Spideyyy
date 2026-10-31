@@ -4,10 +4,7 @@ import asyncio
 
 import aiohttp
 import discord
-from discord import app_commands
 from discord.ext import commands
-
-from theme import web_embed, DARK
 
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
 MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")  # change via env var if Google retires it
@@ -97,6 +94,14 @@ class AIChat(commands.Cog):
             text = "Hello!"
         text = text[:MAX_INPUT]
 
+        # "@Spidey reset" clears this channel's AI memory (no slash command needed)
+        if text.lower().strip(" !.") in ("reset", "forget", "clear"):
+            self.histories.pop(message.channel.id, None)
+            await message.reply("Memory wiped! I forgot our chat in this channel. 🕸️",
+                                mention_author=False,
+                                allowed_mentions=discord.AllowedMentions.none())
+            return
+
         now = time.time()
         if now - self.last_used.get(message.author.id, 0) < COOLDOWN:
             return
@@ -117,15 +122,6 @@ class AIChat(commands.Cog):
         if isinstance(error, commands.CommandNotFound):
             return
         print(f"Command error: {error!r}")
-
-    # ---------- slash command
-    @app_commands.command(name="resetchat", description="Make Spidey forget this channel's AI conversation")
-    @app_commands.guild_only()
-    @app_commands.default_permissions(manage_messages=True)
-    async def resetchat(self, interaction: discord.Interaction):
-        self.histories.pop(interaction.channel_id, None)
-        await interaction.response.send_message(
-            embed=web_embed("Memory Wiped", "I forgot our chat in this channel. 🕸️", DARK), ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
