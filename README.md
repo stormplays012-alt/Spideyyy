@@ -6,7 +6,7 @@
 3. Open the terminal in VS Code (Ctrl + `) and run:
    pip install -r requirements.txt
 4. Set your bot token as the DISCORD_TOKEN environment variable
-   (for AI chat also set GEMINI_API_KEY - free key from https://aistudio.google.com/app/apikey)
+   (for AI chat also set GROQ_API_KEY (fast, free: https://console.groq.com/keys) and/or GEMINI_API_KEY (backup: https://aistudio.google.com/app/apikey))
 5. Run:
    python bot.py
 
@@ -32,7 +32,7 @@
   vcmute, vcunmute, vcdeafen, vcundeafen, vckick, vcmove
 - Run /setlogchannel to get a log of every mod action (case system).
 - Utility:      (see /help)
-  serverinfo, whois, roleinfo, channelinfo, membercount, banner, servericon,
+  serverinfo, whois, roleinfo, channelinfo, banner, servericon,
   emojis, roles, botinfo, uptime, invite, calc, choose, roll, color,
   timestamp, snowflake, password, base64, say, embed, poll, suggest,
   setsuggestchannel, remind, reminders, delreminder, afk, todo, giveaway
