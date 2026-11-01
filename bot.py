@@ -1,11 +1,14 @@
 
 import os
 import random
+import traceback
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from theme import web_embed, RED, DARK, BLUE
+from theme import web_embed, RED, DARK, BLUE, install_error_handlers
+
+install_error_handlers()  # buttons/menus/forms never fail silently any more
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 
@@ -113,11 +116,14 @@ async def on_error(interaction: discord.Interaction, error: app_commands.AppComm
         text = "You can't use that here. 🕸️"
     else:
         text = "Something went wrong. Try again in a sec 🕸️"
-        print(f"Command error: {error!r}")
+        traceback.print_exception(type(error), error, error.__traceback__)
     embed = web_embed("Stuck in the Web!", text, DARK)
-    if interaction.response.is_done():
-        await interaction.followup.send(embed=embed, ephemeral=True)
-    else:
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+    try:
+        if interaction.response.is_done():
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        else:
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+    except discord.HTTPException:
+        pass  # interaction already expired
 
 client.run(TOKEN)

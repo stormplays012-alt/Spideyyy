@@ -2,12 +2,13 @@ import asyncio
 import copy
 import json
 import os
+import traceback
 
 import discord
 from discord import app_commands
 from discord.ext import commands
 
-from theme import web_embed, RED, BLUE, DARK
+from theme import web_embed, RED, BLUE, DARK, report_ui_error
 from vm_banner import banner_file, BANNER_NAME
 
 DATA_FILE = "voicemaster.json"
@@ -89,6 +90,39 @@ async def _reply(interaction: discord.Interaction, title: str, text: str, color:
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
+def result_embed(result) -> discord.Embed:
+    """(title, text, color[, fields]) -> a clean embed. fields = [(name, value, inline), ...]"""
+    title, text, color, *rest = result
+    e = web_embed(title, text, color)
+    for name, value, inline in (rest[0] if rest else []):
+        e.add_field(name=name, value=(value or "—")[:1024], inline=inline)
+    return e
+
+
+NOT_OWNER = ("Hands off my web!", "Only the room owner can do that. 🕷️", DARK)
+
+
+def _mentions(ids) -> str:
+    return ", ".join(f"<@{i}>" for i in ids) or "nobody"
+
+
+async def _edit_original(interaction: discord.Interaction, embed: discord.Embed, view=None):
+    """Edit the message a component sits on. Returns the message (or None if Discord refused)."""
+    try:
+        return await interaction.edit_original_response(embed=embed, view=view)
+    except discord.HTTPException:
+        return None
+
+
+async def _send_menu(interaction: discord.Interaction, embed: discord.Embed, view: discord.ui.View):
+    """Send an ephemeral menu and remember its message so it can be closed neatly when it times out."""
+    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+    try:
+        view.message = await interaction.original_response()
+    except discord.HTTPException:
+        pass
+
+
 async def safe_edit(channel: discord.VoiceChannel, **kwargs):
     """Edit a channel. Returns None on success, or an error string."""
     try:
@@ -160,11 +194,14 @@ def panel_embed(owner: discord.Member, room: dict = None, channel=None,
     e.add_field(name="👥 Capacity", value=f"{count}/{limit}" if limit else f"{count} • unlimited", inline=True)
     e.add_field(name="🎚️ Bitrate", value=f"{kbps} kbps", inline=True)
     e.add_field(name="🌍 Region", value=REGION_NAMES.get(region, region.title()), inline=True)
-    e.add_field(name="🎙️ Status", value=(st["status"] or "—")[:100], inline=True)
-    e.add_field(name="🎟️ Guest list",
-                value=f"✅ {len(st['permitted'])} • 🚫 {len(st['rejected'])}", inline=True)
+    def _short(ids):
+        shown = ", ".join(f"<@{i}>" for i in ids[:3])
+        return shown + (f" +{len(ids) - 3}" if len(ids) > 3 else "") if ids else "—"
+    e.add_field(name="✅ Permitted", value=_short(st["permitted"]), inline=True)
+    e.add_field(name="🚫 Blocked", value=_short(st["rejected"]), inline=True)
     created = f"<t:{int(channel.created_at.timestamp())}:R>" if channel is not None else "just now"
     e.add_field(name="🕐 Created", value=created, inline=True)
+    e.add_field(name="🎙️ Status", value=(st["status"] or "—")[:100], inline=False)
     e.set_image(url=f"attachment://{BANNER_NAME}")
     e.set_footer(text=f"🕸️ Spidey • {channel.name}" if channel is not None else "🕸️ Spidey • Your friendly neighborhood bot")
     return e
@@ -204,28 +241,95 @@ class StatusModal(discord.ui.Modal, title="Set room status 🕸️"):
         await self.cog.set_status(interaction, self.channel_id, str(self.text).strip())
 
 
-# ------------------------------------------------------------------ user picker
-class PickView(discord.ui.View):
-    """Ephemeral dropdown to choose a user for permit/reject/kick/transfer."""
+# ------------------------------------------------------------------ pickers
+class _Menu(discord.ui.View):
+    """Base for the small owner-only menus.
 
-    def __init__(self, handler, channel_id, owner_id, placeholder):
-        super().__init__(timeout=60)
-        self.handler, self.channel_id, self.owner_id = handler, channel_id, owner_id
-        self.select = discord.ui.UserSelect(placeholder=placeholder, min_values=1, max_values=1)
+    Why this exists: the old pickers stopped themselves after one use but stayed on screen, so using the same
+    dropdown a second time showed 'Spidey isn't responding'. These menus (a) answer Discord immediately,
+    (b) show the result in the same message, (c) re-arm themselves when you may pick again, and
+    (d) close with a friendly message when they time out.
+    """
+
+    def __init__(self, owner_id: int, timeout: float = 180):
+        super().__init__(timeout=timeout)
+        self.owner_id = owner_id
+        self.message = None
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id != self.owner_id:
+            await _reply(interaction, "Hands off my web!", "This menu belongs to the room owner. 🕷️", DARK)
+            return False
+        return True
+
+    async def on_timeout(self):
+        if self.message is None:
+            return
+        try:
+            await self.message.edit(
+                embed=web_embed("Menu Closed", "That menu timed out. Open it again from the panel. 🕸️", DARK), view=None)
+        except discord.HTTPException:
+            pass
+
+    async def _run(self, interaction, *args):
+        """Run the handler; a crash becomes a friendly message instead of a dead menu."""
+        try:
+            return await self.handler(interaction, self.channel_id, *args)
+        except Exception as e:
+            traceback.print_exception(type(e), e, e.__traceback__)
+            return ("Web Snagged!", "Something went wrong on my side. Try again. 🕸️", DARK)
+
+
+class PickView(_Menu):
+    """Dropdown to choose people for permit / reject / kick / transfer.
+
+    `options=None` -> any server member (user picker, can choose several). Otherwise a list of room members.
+    `keep_open=True` -> the menu re-arms itself after every pick so you can keep going.
+    """
+
+    def __init__(self, handler, channel_id, owner_id, placeholder, *, options=None, multi=False, keep_open=True):
+        super().__init__(owner_id)
+        self.handler, self.channel_id = handler, channel_id
+        self.placeholder, self.options, self.multi, self.keep_open = placeholder, options, multi, keep_open
+        if options is None:
+            self.select = discord.ui.UserSelect(placeholder=placeholder, min_values=1, max_values=5 if multi else 1)
+        else:
+            self.select = discord.ui.Select(placeholder=placeholder, min_values=1, options=options,
+                                            max_values=min(5, len(options)) if multi else 1)
         self.select.callback = self.picked
         self.add_item(self.select)
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        return interaction.user.id == self.owner_id
+    def fresh(self):
+        return PickView(self.handler, self.channel_id, self.owner_id, self.placeholder,
+                        options=self.options, multi=self.multi, keep_open=self.keep_open)
 
     async def picked(self, interaction: discord.Interaction):
-        member = interaction.guild.get_member(self.select.values[0].id)
-        if member is None:
-            return await _reply(interaction, "Web Snagged!", "I can't find that member.", DARK)
+        await interaction.response.defer()                    # answer Discord first (3-second rule)
+        members = []
+        for v in self.select.values:
+            uid = v.id if hasattr(v, "id") else int(v)
+            m = interaction.guild.get_member(uid)
+            if m is None:
+                try:
+                    m = await interaction.guild.fetch_member(uid)
+                except discord.HTTPException:
+                    m = None
+            if m is not None:
+                members.append(m)
+
+        if members:
+            result = await self._run(interaction, members)
+        else:
+            result = ("Web Snagged!", "I can't find that member in this server.", DARK)
+
         self.stop()
-        await self.handler(interaction, self.channel_id, member)
+        new = self.fresh() if self.keep_open else None
+        msg = await _edit_original(interaction, result_embed(result), new)
+        if new is not None:
+            new.message = msg
 
 
+REGIONS_PLACEHOLDER = None  # (regions are defined just below)
 REGIONS = [
     ("auto", "Automatic", "🌐"), ("brazil", "Brazil", "🇧🇷"), ("hongkong", "Hong Kong", "🇭🇰"),
     ("india", "India", "🇮🇳"), ("japan", "Japan", "🇯🇵"), ("rotterdam", "Rotterdam", "🇳🇱"),
@@ -238,36 +342,34 @@ BITRATES = [(8, "Tiny"), (16, "Low"), (32, "Light"), (64, "Standard"), (96, "Goo
             (128, "High (Boost level 1)"), (256, "Very high (Boost level 2)"), (384, "Max (Boost level 3)")]
 
 
-class ChoiceView(discord.ui.View):
-    """Ephemeral single-choice dropdown (bitrate / region). Owner only."""
+class ChoiceView(_Menu):
+    """Single-choice dropdown (bitrate / region). Shows the result in the same message and closes."""
 
     def __init__(self, handler, channel_id, owner_id, options, placeholder):
-        super().__init__(timeout=60)
-        self.handler, self.channel_id, self.owner_id = handler, channel_id, owner_id
+        super().__init__(owner_id)
+        self.handler, self.channel_id = handler, channel_id
         self.select = discord.ui.Select(placeholder=placeholder, min_values=1, max_values=1, options=options)
         self.select.callback = self.picked
         self.add_item(self.select)
 
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        return interaction.user.id == self.owner_id
-
     async def picked(self, interaction: discord.Interaction):
+        await interaction.response.defer()
+        result = await self._run(interaction, self.select.values[0])
         self.stop()
-        await self.handler(interaction, self.channel_id, self.select.values[0])
+        await _edit_original(interaction, result_embed(result), None)
 
 
-class ConfirmView(discord.ui.View):
+class ConfirmView(_Menu):
     def __init__(self, handler, channel_id, owner_id):
-        super().__init__(timeout=60)
-        self.handler, self.channel_id, self.owner_id = handler, channel_id, owner_id
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        return interaction.user.id == self.owner_id
+        super().__init__(owner_id, timeout=120)
+        self.handler, self.channel_id = handler, channel_id
 
     @discord.ui.button(label="Yes, reset it", emoji="♻️", style=discord.ButtonStyle.danger)
     async def yes(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer()
+        result = await self._run(interaction)
         self.stop()
-        await self.handler(interaction, self.channel_id)
+        await _edit_original(interaction, result_embed(result), None)
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
     async def no(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -318,39 +420,63 @@ async def run_action(interaction: discord.Interaction, action: str):
         limit_k = int(interaction.guild.bitrate_limit // 1000)
         opts = [discord.SelectOption(label=f"{k} kbps", description=d, value=str(k))
                 for k, d in BITRATES if k <= limit_k][:25]
-        return await interaction.response.send_message(
-            embed=web_embed("Voice Quality", "Higher bitrate = clearer audio. The max depends on this "
-                                             f"server's Boost level (up to **{limit_k} kbps** here). 🎚️", DARK),
-            view=ChoiceView(cog.set_bitrate, channel_id, interaction.user.id, opts, "🎚️ Choose a bitrate..."),
-            ephemeral=True)
+        return await _send_menu(
+            interaction,
+            web_embed("Voice Quality", "Higher bitrate = clearer audio. The max depends on this "
+                                       f"server's Boost level (up to **{limit_k} kbps** here). 🎚️", DARK),
+            ChoiceView(cog.set_bitrate, channel_id, interaction.user.id, opts, "🎚️ Choose a bitrate..."))
     if action == "region":
         opts = [discord.SelectOption(label=n, value=k, emoji=e) for k, n, e in REGIONS]
-        return await interaction.response.send_message(
-            embed=web_embed("Voice Region", "Pick the server closest to everyone for the lowest lag. 🌍", DARK),
-            view=ChoiceView(cog.set_region, channel_id, interaction.user.id, opts, "🌍 Choose a region..."),
-            ephemeral=True)
+        return await _send_menu(
+            interaction,
+            web_embed("Voice Region", "Pick the server closest to everyone for the lowest lag. 🌍", DARK),
+            ChoiceView(cog.set_region, channel_id, interaction.user.id, opts, "🌍 Choose a region..."))
     if action == "reset":
-        return await interaction.response.send_message(
-            embed=web_embed("Reset Room?", "This restores the default name, limit, status, bitrate and region, "
-                                           "unlocks and unhides the room, and clears the permit/block lists. ♻️", DARK),
-            view=ConfirmView(cog.reset_room, channel_id, interaction.user.id), ephemeral=True)
+        return await _send_menu(
+            interaction,
+            web_embed("Reset Room?", "This restores the default name, limit, status, bitrate and region, "
+                                     "unlocks and unhides the room, and clears the permit/block lists. ♻️", DARK),
+            ConfirmView(cog.reset_room, channel_id, interaction.user.id))
 
-    handlers = {
-        "permit": (cog.permit, "Who can join?"),
-        "reject": (cog.reject, "Who should be blocked?"),
-        "kick": (cog.kick, "Who should be removed?"),
-        "transfer": (cog.transfer, "Choose the new owner."),
-    }
-    if action in handlers:
-        handler, placeholder = handlers[action]
-        return await interaction.response.send_message(
-            embed=web_embed("Pick a Member", "Choose someone from the dropdown below. 🕸️", DARK),
-            view=PickView(handler, channel_id, interaction.user.id, placeholder),
-            ephemeral=True,
-        )
+    st = room["state"]
+    if action == "permit":
+        e = web_embed("Permit Members",
+                      "Pick up to **5** people who may **always join**, even when your room is locked or hidden. ✅\n"
+                      "*Pick someone who's already on the list to take them off.*", DARK)
+        e.add_field(name=f"🎟️ Guest list ({len(st['permitted'])})", value=_mentions(st["permitted"]), inline=False)
+        return await _send_menu(
+            interaction, e,
+            PickView(cog.permit, channel_id, interaction.user.id, "✅ Choose who can join...", multi=True))
+    if action == "reject":
+        e = web_embed("Block Members",
+                      "Pick up to **5** people to **keep out**. They can't see or join your room, and they're removed "
+                      "if they're inside. 🚫\n*Pick someone who's already blocked to let them back.*", DARK)
+        e.add_field(name=f"⛔ Block list ({len(st['rejected'])})", value=_mentions(st["rejected"]), inline=False)
+        return await _send_menu(
+            interaction, e,
+            PickView(cog.reject, channel_id, interaction.user.id, "🚫 Choose who to block...", multi=True))
+    if action in ("kick", "transfer"):
+        channel = interaction.guild.get_channel(channel_id)
+        people = [m for m in (channel.members if channel else []) if not m.bot and m.id != room["owner"]]
+        if not people:
+            return await _reply(interaction, "Empty Web", "Nobody else is in your room right now. 🕸️", DARK)
+        opts = [discord.SelectOption(label=m.display_name[:100], value=str(m.id), description=f"@{m.name}"[:100])
+                for m in people[:25]]
+        if action == "kick":
+            return await _send_menu(
+                interaction, web_embed("Kick Members", "Pick up to **5** people to remove from the room. 🥾", DARK),
+                PickView(cog.kick, channel_id, interaction.user.id, "🥾 Choose who to kick...",
+                         options=opts, multi=True, keep_open=False))
+        return await _send_menu(
+            interaction, web_embed("Transfer Ownership", "Choose who becomes the new owner. 👑", DARK),
+            PickView(cog.transfer, channel_id, interaction.user.id, "👑 Choose the new owner...",
+                     options=opts, keep_open=False))
 
 
 class _PanelBase(discord.ui.View):
+    async def on_error(self, interaction: discord.Interaction, error: Exception, item):
+        await report_ui_error(interaction, error)
+
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         cog = interaction.client.get_cog("VoiceMaster")
         channel = interaction.channel
@@ -485,13 +611,15 @@ class ControlPanel(_PanelBase):
                                  else "Only works after the owner has left")
 
     async def _go(self, interaction: discord.Interaction, action: str):
-        await run_action(interaction, action)
-        try:        # re-sending the panel also resets the dropdown so the same option can be picked again
-            cog = interaction.client.get_cog("VoiceMaster")
-            if cog:
-                cog.schedule_refresh(interaction.channel.id)
-        except Exception:
-            pass
+        try:
+            await run_action(interaction, action)
+        finally:    # re-sending the panel also resets the dropdown so the same option can be picked again
+            try:
+                cog = interaction.client.get_cog("VoiceMaster")
+                if cog:
+                    cog.schedule_refresh(interaction.channel.id)
+            except Exception:
+                pass
 
     @discord.ui.select(
         placeholder="⚙️ Room Settings...", custom_id="vm:settings", min_values=1, max_values=1, row=0,
@@ -725,20 +853,21 @@ class VoiceMaster(commands.Cog):
                 break
 
     # ---------- live panel refresh
-    def schedule_refresh(self, cid):
+    def schedule_refresh(self, cid, delay: float = 0.8):
         cid = int(cid)
         task = self._refresh_tasks.get(cid)
         if task and not task.done():
             return                      # one already queued: it will read the latest state
-        self._refresh_tasks[cid] = asyncio.create_task(self._refresh_later(cid))
+        self._refresh_tasks[cid] = asyncio.create_task(self._refresh_later(cid, delay))
 
-    async def _refresh_later(self, cid: int):
+    async def _refresh_later(self, cid: int, delay: float = 0.8):
         try:
-            await asyncio.sleep(2)      # batch rapid changes / let Discord's cache catch up
+            await asyncio.sleep(delay)  # batch rapid changes / let Discord's cache catch up
             self._refresh_tasks.pop(cid, None)
             await self.refresh_panel(cid)
-        except Exception:
+        except Exception as e:
             self._refresh_tasks.pop(cid, None)
+            print(f"VoiceMaster: could not refresh panel {cid}: {e!r}")
 
     async def refresh_panel(self, cid: int):
         room = self.store.get_room(cid)
@@ -841,70 +970,116 @@ class VoiceMaster(commands.Cog):
                      "Only you and permitted members can see this room. 👻" if hidden
                      else "Everyone can see the room again. 🕸️")
 
-    async def permit(self, interaction, channel_id, target: discord.Member):
-        await interaction.response.defer(ephemeral=True)
+    async def permit(self, interaction, channel_id, targets):
+        """Toggle people on the guest list. Returns (title, text, color) for the menu to show."""
         room, channel = self._room(interaction, channel_id)
         if not room:
-            return await self._not_owner(interaction)
-        if target.id == room["owner"] or target.id == self.bot.user.id:
-            return await _reply(interaction, "Web Snagged!", "Pick someone else. 🕷️", DARK)
+            return NOT_OWNER
         st = room["state"]
-        try:
-            if target.id in st["permitted"]:
-                await channel.set_permissions(target, overwrite=None)
-                st["permitted"].remove(target.id)
-                msg = f"{target.mention} is off the guest list."
-            else:
-                await channel.set_permissions(target, connect=True, view_channel=True)
-                st["permitted"].append(target.id)
-                if target.id in st["rejected"]:
-                    st["rejected"].remove(target.id)
-                msg = f"{target.mention} can always swing into your web. ✅"
-        except discord.HTTPException as e:
-            return await _reply(interaction, "Web Snagged!", e.text, DARK)
-        self._commit(room)
-        await _reply(interaction, "Guest List Updated!", msg)
+        added, removed, skipped, problem = [], [], [], None
+        for t in targets:
+            if t.id == room["owner"] or t.id == self.bot.user.id:
+                skipped.append(t)
+                continue
+            try:
+                if t.id in st["permitted"]:
+                    await channel.set_permissions(t, overwrite=None)
+                    st["permitted"].remove(t.id)
+                    removed.append(t)
+                else:
+                    await channel.set_permissions(t, connect=True, view_channel=True)
+                    st["permitted"].append(t.id)
+                    if t.id in st["rejected"]:
+                        st["rejected"].remove(t.id)
+                    added.append(t)
+            except discord.HTTPException as e:
+                problem = e.text or "Discord said no."
+                break
+        if added or removed:
+            self._commit(room)
+        fields = []
+        if added:
+            fields.append(("✅ Can always join now", ", ".join(m.mention for m in added), False))
+        if removed:
+            fields.append(("➖ Taken off the list", ", ".join(m.mention for m in removed), False))
+        if skipped:
+            fields.append(("⚠️ Skipped", "That's you or me, no need! " + ", ".join(m.mention for m in skipped), False))
+        if problem:
+            fields.append(("❌ Problem", problem, False))
+        fields.append((f"🎟️ Guest list ({len(st['permitted'])})", _mentions(st["permitted"]), False))
+        ok = bool(added or removed) and not problem
+        return ("Guest List Updated!" if ok else "Web Snagged!"), \
+               "Pick more people below, or dismiss this message when you're done. 🕸️", (RED if ok else DARK), fields
 
-    async def reject(self, interaction, channel_id, target: discord.Member):
-        await interaction.response.defer(ephemeral=True)
+    async def reject(self, interaction, channel_id, targets):
+        """Toggle people on the block list (and remove them from the room). Returns (title, text, color)."""
         room, channel = self._room(interaction, channel_id)
         if not room:
-            return await self._not_owner(interaction)
-        if target.id == room["owner"] or target.id == self.bot.user.id:
-            return await _reply(interaction, "Web Snagged!", "Pick someone else. 🕷️", DARK)
+            return NOT_OWNER
         st = room["state"]
-        try:
-            if target.id in st["rejected"]:
-                await channel.set_permissions(target, overwrite=None)
-                st["rejected"].remove(target.id)
-                msg = f"{target.mention} is unblocked."
-            else:
-                await channel.set_permissions(target, connect=False, view_channel=False)
-                st["rejected"].append(target.id)
-                if target.id in st["permitted"]:
-                    st["permitted"].remove(target.id)
-                if target.voice and target.voice.channel and target.voice.channel.id == channel.id:
-                    await target.move_to(None)
-                msg = f"{target.mention} is stuck outside the web. 🚫"
-        except discord.HTTPException as e:
-            return await _reply(interaction, "Web Snagged!", e.text, DARK)
-        self._commit(room)
-        await _reply(interaction, "Block List Updated!", msg)
+        blocked, unblocked, skipped, problem = [], [], [], None
+        for t in targets:
+            if t.id == room["owner"] or t.id == self.bot.user.id:
+                skipped.append(t)
+                continue
+            try:
+                if t.id in st["rejected"]:
+                    await channel.set_permissions(t, overwrite=None)
+                    st["rejected"].remove(t.id)
+                    unblocked.append(t)
+                else:
+                    await channel.set_permissions(t, connect=False, view_channel=False)
+                    st["rejected"].append(t.id)
+                    if t.id in st["permitted"]:
+                        st["permitted"].remove(t.id)
+                    if t.voice and t.voice.channel and t.voice.channel.id == channel.id:
+                        await t.move_to(None)
+                    blocked.append(t)
+            except discord.HTTPException as e:
+                problem = e.text or "Discord said no."
+                break
+        if blocked or unblocked:
+            self._commit(room)
+        fields = []
+        if blocked:
+            fields.append(("🚫 Stuck outside the web", ", ".join(m.mention for m in blocked), False))
+        if unblocked:
+            fields.append(("➖ Unblocked", ", ".join(m.mention for m in unblocked), False))
+        if skipped:
+            fields.append(("⚠️ Skipped", "That's you or me, no need! " + ", ".join(m.mention for m in skipped), False))
+        if problem:
+            fields.append(("❌ Problem", problem, False))
+        fields.append((f"⛔ Block list ({len(st['rejected'])})", _mentions(st["rejected"]), False))
+        ok = bool(blocked or unblocked) and not problem
+        return ("Block List Updated!" if ok else "Web Snagged!"), \
+               "Pick more people below, or dismiss this message when you're done. 🕸️", (RED if ok else DARK), fields
 
-    async def kick(self, interaction, channel_id, target: discord.Member):
-        await interaction.response.defer(ephemeral=True)
+    async def kick(self, interaction, channel_id, targets):
         room, channel = self._room(interaction, channel_id)
         if not room:
-            return await self._not_owner(interaction)
-        if target.id == room["owner"]:
-            return await _reply(interaction, "Web Snagged!", "You can't kick yourself. 🕷️", DARK)
-        if not (target.voice and target.voice.channel and target.voice.channel.id == channel.id):
-            return await _reply(interaction, "Web Snagged!", "That member isn't in your room.", DARK)
-        try:
-            await target.move_to(None)
-        except discord.HTTPException as e:
-            return await _reply(interaction, "Web Snagged!", e.text, DARK)
-        await _reply(interaction, "Yeeted!", f"{target.mention} was swung out of the web. 🥾")
+            return NOT_OWNER
+        kicked, skipped, problem = [], [], None
+        for t in targets:
+            inside = bool(t.voice and t.voice.channel and t.voice.channel.id == channel.id)
+            if t.id == room["owner"] or not inside:
+                skipped.append(t)
+                continue
+            try:
+                await t.move_to(None)
+                kicked.append(t)
+            except discord.HTTPException as e:
+                problem = e.text or "Discord said no."
+                break
+        fields = []
+        if kicked:
+            fields.append(("🥾 Swung out of the web", ", ".join(m.mention for m in kicked), False))
+        if skipped:
+            fields.append(("⚠️ Skipped", "Not in your room, or it's you: " + ", ".join(m.mention for m in skipped), False))
+        if problem:
+            fields.append(("❌ Problem", problem, False))
+        ok = bool(kicked) and not problem
+        return ("Yeeted!" if ok else "Web Snagged!"), \
+               ("They've been removed from the room. 🕸️" if ok else "Nobody was removed."), (RED if ok else DARK), fields
 
     async def _do_transfer(self, interaction, room, channel, new_owner: discord.Member):
         old_id = room["owner"]
@@ -920,20 +1095,20 @@ class VoiceMaster(commands.Cog):
         await channel.send(embed=web_embed(
             "New Web Master!", f"{new_owner.mention} now owns this web. 👑🕷️", BLUE))
 
-    async def transfer(self, interaction, channel_id, target: discord.Member):
-        await interaction.response.defer(ephemeral=True)
+    async def transfer(self, interaction, channel_id, targets):
         room, channel = self._room(interaction, channel_id)
         if not room:
-            return await self._not_owner(interaction)
+            return NOT_OWNER
+        target = targets[0]
         if target.id == room["owner"] or target.bot:
-            return await _reply(interaction, "Web Snagged!", "Pick a different (human) member.", DARK)
+            return "Web Snagged!", "Pick a different (human) member.", DARK
         if target not in channel.members:
-            return await _reply(interaction, "Web Snagged!", "They need to be in the room first.", DARK)
+            return "Web Snagged!", "They need to be in the room first.", DARK
         try:
             await self._do_transfer(interaction, room, channel, target)
         except discord.HTTPException as e:
-            return await _reply(interaction, "Web Snagged!", e.text, DARK)
-        await _reply(interaction, "Ownership Transferred!", f"{target.mention} is the new owner. 👑")
+            return "Web Snagged!", e.text or "Discord said no.", DARK
+        return "Ownership Transferred!", f"{target.mention} is the new owner. 👑", RED
 
     async def claim(self, interaction, channel_id):
         await interaction.response.defer(ephemeral=True)
@@ -953,31 +1128,29 @@ class VoiceMaster(commands.Cog):
         await _reply(interaction, "Web Claimed!", "You're the new owner now. 👑")
 
     async def set_bitrate(self, interaction, channel_id, value):
-        await interaction.response.defer(ephemeral=True)
         room, channel = self._room(interaction, channel_id)
         if not room:
-            return await self._not_owner(interaction)
+            return NOT_OWNER
         bps = int(value) * 1000
         err = await safe_edit(channel, bitrate=bps)
         if err:
-            return await _reply(interaction, "Web Snagged!", err, DARK)
+            return "Web Snagged!", err, DARK
         room["state"]["bitrate"] = bps
         self._commit(room)
-        await _reply(interaction, "Bitrate Updated!", f"Audio quality is now **{value} kbps** 🎚️")
+        return "Bitrate Updated!", f"Audio quality is now **{value} kbps** 🎚️", RED
 
     async def set_region(self, interaction, channel_id, value):
-        await interaction.response.defer(ephemeral=True)
         room, channel = self._room(interaction, channel_id)
         if not room:
-            return await self._not_owner(interaction)
+            return NOT_OWNER
         err = await safe_edit(channel, rtc_region=None if value == "auto" else value)
         if err:
-            return await _reply(interaction, "Web Snagged!", err, DARK)
+            return "Web Snagged!", err, DARK
         room["state"]["region"] = "" if value == "auto" else value
         self._commit(room)
-        await _reply(interaction, "Region Updated!",
-                     f"Voice region is now **{REGION_NAMES.get(value, value)}** 🌍\n"
-                     "Members may briefly reconnect while it switches.")
+        return ("Region Updated!",
+                f"Voice region is now **{REGION_NAMES.get(value, value)}** 🌍\n"
+                "Members may briefly reconnect while it switches.", RED)
 
     async def invite_link(self, interaction, channel_id):
         await interaction.response.defer(ephemeral=True)
@@ -1015,10 +1188,9 @@ class VoiceMaster(commands.Cog):
                      f"Removed **{len(ids)}** member(s) from the permit and block lists. 🧹")
 
     async def reset_room(self, interaction, channel_id):
-        await interaction.response.defer(ephemeral=True)
         room, channel = self._room(interaction, channel_id)
         if not room:
-            return await self._not_owner(interaction)
+            return NOT_OWNER
         owner = interaction.user          # only the owner can get here (checked by _room)
         fresh = copy.deepcopy(DEFAULT_STATE)
         err = await safe_edit(
@@ -1030,33 +1202,37 @@ class VoiceMaster(commands.Cog):
             rtc_region=None,
         )
         if err:
-            return await _reply(interaction, "Web Snagged!", err, DARK)
+            return "Web Snagged!", err, DARK
         await safe_edit(channel, status=None)
         st = room["state"]
         st.clear()
         st.update(fresh)
         self._commit(room)
-        await _reply(interaction, "Room Reset!", "Everything is back to default. ♻️")
+        return "Room Reset!", "Everything is back to default. ♻️", RED
 
     async def info(self, interaction, channel_id):
         room = self.store.get_room(channel_id)
         if not room:
             return await _reply(interaction, "Dead Web", "This room isn't active.", DARK)
         st = room["state"]
-        fmt = lambda ids: ", ".join(f"<@{i}>" for i in ids) or "nobody"
-        desc = (
-            f"👑 **Owner:** <@{room['owner']}>\n"
-            f"👥 **Limit:** {st['limit'] or 'unlimited'}\n"
-            f"🔒 **Locked:** {'yes' if st['locked'] else 'no'}\n"
-            f"👻 **Hidden:** {'yes' if st['hidden'] else 'no'}\n"
-            f"📝 **Status:** {st['status'] or 'none'}\n"
-            f"🎚️ **Bitrate:** {(st.get('bitrate') or 0) // 1000 or 'default'}{' kbps' if st.get('bitrate') else ''}\n"
-            f"🌍 **Region:** {REGION_NAMES.get(st.get('region') or 'auto', st.get('region') or 'Automatic')}\n"
-            f"✅ **Permitted:** {fmt(st['permitted'])}\n"
-            f"🚫 **Rejected:** {fmt(st['rejected'])}"
-        )
-        await _reply(interaction, "Web Info", desc, BLUE)
-
+        channel = interaction.guild.get_channel(channel_id)
+        embed = web_embed("Web Info", color=BLUE)
+        embed.add_field(name="👑 Owner", value=f"<@{room['owner']}>")
+        embed.add_field(name="🔐 Access", value="🔒 Locked" if st["locked"] else "🔓 Open")
+        embed.add_field(name="👁️ Visibility", value="👻 Hidden" if st["hidden"] else "👁️ Visible")
+        embed.add_field(name="👥 Limit", value=str(st["limit"] or "unlimited"))
+        kbps = (st.get("bitrate") or 0) // 1000
+        embed.add_field(name="🎚️ Bitrate", value=f"{kbps} kbps" if kbps else "default")
+        embed.add_field(name="🌍 Region", value=REGION_NAMES.get(st.get("region") or "auto", st.get("region") or "Automatic"))
+        embed.add_field(name="🎙️ Status", value=st["status"] or "none", inline=False)
+        embed.add_field(name="✅ Permitted", value=_mentions(st["permitted"])[:1000], inline=False)
+        embed.add_field(name="🚫 Blocked", value=_mentions(st["rejected"])[:1000], inline=False)
+        if channel is not None:
+            embed.set_footer(text=f"🕸️ Spidey • {channel.name} • {len(channel.members)} inside")
+        if interaction.response.is_done():
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        else:
+            await interaction.response.send_message(embed=embed, ephemeral=True)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(VoiceMaster(bot))
