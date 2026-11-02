@@ -57,7 +57,8 @@ class OpenModal(discord.ui.Modal):
         cog = interaction.client.get_cog("Tickets")
         answers = [(label, str(field).strip()) for label, field in self.question_inputs]
         subject = next((v for k, v in answers if "help" in k.lower() or "subject" in k.lower() or "issue" in k.lower()), answers[0][1])
-        details = "\n".join(f"**{k}:** {v}" for k, v in answers if v and v != subject)
+        # Show EVERY question with its own answer (the first answer is no longer relabelled "Subject").
+        details = "\n".join(f"**{k}:** {v}" for k, v in answers if v)
         await cog.create_ticket(interaction, subject[:100] or "Support request", details, self.panel_id, answers, self.button_index)
 
 
@@ -242,8 +243,9 @@ class Tickets(commands.Cog):
         self.save()
 
         intro = str(button_cfg.get("ticket_message", panel.get("ticket_message")) or "A staff member will be with you soon. 🕷️")[:4000]
-        embed = web_embed(f"Ticket #{number}", f"**Subject:** {subject}\n" + (f"{details}\n" if details else "")
-                          + f"\n{intro}", BLUE)
+        # If the user filled a custom form, the questions/answers ARE the content - no fake "Subject" line.
+        head = f"{details[:3000]}\n" if (answers and details) else f"**Subject:** {subject}\n" + (f"{details[:3000]}\n" if details else "")
+        embed = web_embed(f"Ticket #{number}", head + f"\n{intro}", BLUE)
         embed.set_author(name=user.display_name, icon_url=user.display_avatar.url)
         mentions = " ".join([user.mention] + [r.mention for r in staff_roles])
         await channel.send(content=mentions, embed=embed, view=TicketControls(),
