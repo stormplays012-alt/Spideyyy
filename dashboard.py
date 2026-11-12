@@ -240,6 +240,17 @@ async def session_mw(request, handler):
                     max_age=30 * 86400 if request["s"].get("remember") else None)
     return resp
 
+OWN: set = set()
+async def load_owners(bot):
+    ids = {int(x) for x in (os.getenv("OWNER_ID") or "").replace(",", " ").split() if x.isdigit()}
+    if not ids:
+        try:
+            info = await bot.application_info()
+            ids = {m.id for m in info.team.members} if info.team else {info.owner.id}
+        except Exception: ids = set()
+    OWN.clear(); OWN.update(ids)
+    print(f"[dashboard] owner access for {len(ids)} account(s)" if ids else "[dashboard] no owner found: set OWNER_ID to control every server")
+
 def build(bot) -> web.Application:
     SECRET, REDIRECT, J = os.getenv("CLIENT_SECRET"), os.getenv("REDIRECT_URI"), web.json_response
     async def dreq(method, path, **kw):
@@ -248,9 +259,10 @@ def build(bot) -> web.Application:
             return await r.json()
     def deny(request, gid=None):
         if not request["s"].get("user"): return J({"error": "Not logged in"}, status=401)
-        if gid and (gid not in request["s"]["guilds"] or not bot.get_guild(int(gid))):
+        own = int(request["s"]["user"]["id"]) in OWN
+        if gid and ((gid not in request["s"]["guilds"] and not own) or not bot.get_guild(int(gid))):
             return J({"error": "You cannot manage this server, or Spidey is not in it"}, status=403)
-        if gid:   # live check, so a remembered login stops working the moment someone loses their permissions
+        if gid and not own:   # live check, so a remembered login stops working the moment someone loses their permissions
             g = bot.get_guild(int(gid)); m = g.get_member(int(request["s"]["user"]["id"]))
             if m and not (g.owner_id == m.id or m.guild_permissions.administrator or m.guild_permissions.manage_guild):
                 return J({"error": "You no longer have permission to manage this server"}, status=403)
@@ -276,10 +288,17 @@ def build(bot) -> web.Application:
     async def logout(request):
         request["s"].clear(); SESSIONS.pop(request["k"], None); _spersist(); return web.HTTPFound("/")
     async def config(request): return J({"clientId": str(bot.user.id)})
-    async def me(request): return J({"user": request["s"].get("user")})
+    async def me(request):
+        u = request["s"].get("user"); return J({"user": u, "owner": bool(u and int(u["id"]) in OWN)})
     async def schema(request): return deny(request) or J(M.schema())
     async def guilds(request):
-        return deny(request) or J([{"id": g["id"], "name": g["name"], "icon": g.get("icon"), "botIn": bot.get_guild(int(g["id"])) is not None, "members": getattr(bot.get_guild(int(g["id"])), "member_count", 0)} for g in request["s"]["guild_list"]])
+        e = deny(request)
+        if e: return e
+        out = [{"id": g["id"], "name": g["name"], "icon": g.get("icon"), "botIn": bot.get_guild(int(g["id"])) is not None, "members": getattr(bot.get_guild(int(g["id"])), "member_count", 0)} for g in request["s"]["guild_list"]]
+        if int(request["s"]["user"]["id"]) in OWN:   # the bot owner sees every server the bot is in
+            have = {x["id"] for x in out}
+            out += [{"id": str(g.id), "name": g.name, "icon": g.icon.key if g.icon else None, "botIn": True, "members": g.member_count, "viaOwner": True} for g in bot.guilds if str(g.id) not in have]
+        return J(out)
 
     async def guild_get(request):
         gid = request.match_info["id"]
@@ -673,6 +692,7 @@ def build(bot) -> web.Application:
 async def start_server(bot):
     if not (os.getenv("CLIENT_SECRET") and os.getenv("REDIRECT_URI")):
         print("[dashboard] CLIENT_SECRET / REDIRECT_URI not set, dashboard not started."); return None
+    await load_owners(bot)
     runner = web.AppRunner(build(bot)); await runner.setup()
     port = int(os.getenv("DASHBOARD_PORT") or os.getenv("PORT") or 3000)
     await web.TCPSite(runner, "0.0.0.0", port).start()
@@ -926,10 +946,10 @@ const isDirty=()=>!!ORIG[TAB]&&JSON.stringify(VAL[TAB])!==JSON.stringify(ORIG[TA
 let CTL=null,busy=false,PREV=null;
 async function init0(){
   const q=new URLSearchParams(location.search).get('error');
-  const {user}=await api('/api/me');
+  const {user,owner}=await api('/api/me');
   if(!user){$('login').classList.remove('hide');if(q)$('loginErr').textContent=q==='state'?'Login expired. Try again.':'Discord login failed. Try again.';return}
   [SCHEMA,{clientId:CID}]=await Promise.all([api('/api/schema'),api('/api/config')]);
-  $('app').classList.remove('hide');$('uname').textContent=user.global_name||user.username;window.ME=user.global_name||user.username;$('hello').textContent='Hey, '+window.ME;
+  $('app').classList.remove('hide');$('uname').textContent=(user.global_name||user.username)+(owner?' (Owner)':'');window.ME=user.global_name||user.username;$('hello').textContent='Hey, '+window.ME;
   $('uav').src=user.avatar?`https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png?size=64`:`https://cdn.discordapp.com/embed/avatars/${Number((BigInt(user.id)>>22n)%6n)}.png`;
   loadServers();
 }
@@ -942,7 +962,7 @@ async function loadServers(){
     list.forEach((g,i)=>{const c=el('button','srv'+(g.botIn?'':' off')),url=g.icon?`https://cdn.discordapp.com/icons/${g.id}/${g.icon}.png?size=128`:'';
       c.style.animationDelay=(i*45)+'ms';if(url)c.style.setProperty('--ic',`url(${url})`);
       const ic=url?el('img'):el('i','',g.name[0]);if(url){ic.src=url;ic.alt=''}
-      const t=el('div');t.append(el('b','',g.name),el('small','',g.botIn?`${g.members.toLocaleString()} members`:'Spidey is not here yet'));
+      const t=el('div');t.append(el('b','',g.name),el('small','',g.botIn?`${g.members.toLocaleString()} members${g.viaOwner?', owner access':''}`:'Spidey is not here yet'));
       c.append(ic,t,el('span','go',g.botIn?'Manage server \u2192':'Add Spidey \u2192'));
       c.onclick=()=>g.botIn?openGuild(g):window.open(`https://discord.com/oauth2/authorize?client_id=${CID}&scope=bot%20applications.commands&permissions=8&guild_id=${g.id}`,'_blank');
       box.append(c)})};
