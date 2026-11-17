@@ -14,6 +14,7 @@
 - Bot tab > turn ON "Server Members Intent" AND "Message Content Intent"
   (both are required - the bot will not start without them)
 - Invite the bot with scopes: bot + applications.commands
+- For the React tab the bot also needs: Add Reactions, Read Message History (and Send Messages for replies)
 - Easiest: give the bot the Administrator permission, or at least:
   Manage Channels, Manage Roles, Manage Nicknames, Kick Members, Ban Members,
   Moderate Members, Manage Messages, Read Message History, Mute Members,
@@ -45,6 +46,10 @@
                 /react cry|laugh|wave|wink|blush|smile|smug|sleep|yawn|run|... [@user]
                 The target gets a "do it back" button.
 - Leveling:     /rank /leaderboard, /levelconfig ..., /levelreward ...
+- Auto React:   set up in the web dashboard, **React** tab (no slash commands). Add words or sentences, then choose what Spidey does
+                when a message contains them: react with emojis (normal emojis and this server's custom emojis), send a text reply, or both.
+                Match modes: contains the word/phrase, contains anywhere, exact message, starts with. Optional channel filter and cooldown.
+                Reply text supports {user} {name} {server} {channel} and :emojiname: for server emojis. Saved in autoreact.json.
 - Welcome:      /welcome status|channel|message|goodbyechannel|goodbyemessage|autorole|minage|verify|test
                 and the look: /welcome text|title|footer|color|thumbnail|image|resetstyle
 - Tickets:      /ticket setup|panel|supportrole|add|remove|rename|close
@@ -68,7 +73,7 @@ Uploaded pictures are saved in the `welcome_images` folder next to bot.py. `/wel
 Data is saved in .json files next to bot.py (created automatically) plus the welcome_images folder.
 
 ## 🖥️ Web dashboard
-Log in with Discord and edit AutoMod, Welcome, Leveling, Moderation log, Tickets and Suggestions from a browser.
+Log in with Discord and edit AutoMod, Welcome, Leveling, Moderation log, Tickets, Suggestions and Auto React from a browser.
 Changes go straight into the same settings your /commands use, so they apply instantly.
 1. Developer Portal > OAuth2: copy the **Client Secret** and add a **Redirect** (example: `http://localhost:3000/auth/callback`).
 2. Set environment variables next to `DISCORD_TOKEN`:

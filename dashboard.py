@@ -310,7 +310,8 @@ def build(bot) -> web.Application:
         return J({"values": data,
             "channels": [{"id": str(c.id), "name": c.name} for c in g.text_channels],
             "categories": [{"id": str(c.id), "name": c.name} for c in g.categories],
-            "roles": [{"id": str(r.id), "name": r.name} for r in g.roles if not r.is_default() and not r.managed]})
+            "roles": [{"id": str(r.id), "name": r.name} for r in g.roles if not r.is_default() and not r.managed],
+            "emojis": [{"id": str(e.id), "name": e.name, "animated": e.animated, "str": str(e)} for e in g.emojis if e.available]})
 
     async def section_put(request):
         gid = request.match_info["id"]
@@ -338,6 +339,10 @@ def build(bot) -> web.Application:
         if T: ok = bool(T.cfg(g.id)["category"]); out["status"].append(["Tickets", "Ready" if ok else "Not set up", ok, "tickets"])
         I = bot.get_cog("InviteTracker")
         if I: c = I.cfg(g.id); ok = bool(c["enabled"] and c["channel"]); out["status"].append(["Invite tracker", "Posting invite messages" if ok else "Off or no channel set", ok, "invites"])
+        R = bot.get_cog("AutoReact")
+        if R:
+            c = R.cfg(g.id); k = sum(1 for r in c["rules"] if r.get("enabled", True)); ok = bool(c["enabled"] and k)
+            out["status"].append(["React", f"{k} rule{'s' if k != 1 else ''} active" if ok else "Off or no rules yet", ok, "autoreact"])
         if L:
             from leveling import level_info
             out["leaderboard"] = [{"name": n(u), "xp": d["xp"], "level": level_info(d["xp"])[0], "messages": d.get("messages", 0)} for u, d in L.ranking(g.id)[:10]]
@@ -676,13 +681,33 @@ def build(bot) -> web.Application:
         except discord.HTTPException: return J({"error": "Discord rejected the message. Check the emojis and my permissions in that channel."}, status=400)
         return J({"ok": True})
 
+    def arc(request):
+        gid = request.match_info["id"]
+        if (e := deny(request, gid)): return e, None, None
+        cog = bot.get_cog("AutoReact")
+        return (None, bot.get_guild(int(gid)), cog) if cog else (J({"error": "The React module is not loaded. Add: await self.load_extension(\"autoreact\") to bot.py"}, status=404), None, None)
+
+    def ar_out(c): return {"enabled": c["enabled"], "rules": [{**r, "channels": [str(x) for x in r["channels"]]} for r in c["rules"]]}
+
+    async def ar_get(request):
+        e, g, cog = arc(request)
+        return e or J(ar_out(cog.cfg(g.id)))
+
+    async def ar_put(request):
+        e, g, cog = arc(request)
+        if e: return e
+        try: new = cog.sanitize(g, await request.json())
+        except (ValueError, TypeError, AttributeError, KeyError) as ex: return J({"error": str(ex) or "Invalid rules"}, status=400)
+        cog.data[str(g.id)] = new; cog.save()
+        return J(ar_out(new))
+
     async def logo(request): return web.Response(body=base64.b64decode(LOGO_B64), content_type="image/jpeg", headers={"Cache-Control": "public, no-store"})
 
     async def index(request): return web.Response(text=INDEX_HTML, content_type="text/html")
     app = web.Application(middlewares=[session_mw])
     app.add_routes([web.get("/", index), web.get("/auth/login", login), web.get("/auth/callback", callback), web.get("/auth/logout", logout),
         web.get("/api/config", config), web.get("/api/me", me), web.get("/api/schema", schema), web.get("/api/guilds", guilds),
-        web.get("/api/guilds/{id}", guild_get), web.get("/api/guilds/{id}/overview", overview), web.get("/logo.jpg", logo), web.get("/spidey-pfp.jpg", logo), web.get("/api/guilds/{id}/rroles", rr_list), web.put("/api/guilds/{id}/rroles/{pid}", rr_put), web.delete("/api/guilds/{id}/rroles/{pid}", rr_delete), web.post("/api/guilds/{id}/rroles/{pid}/post", rr_post), web.get("/api/guilds/{id}/giveaways", gw_list), web.post("/api/guilds/{id}/giveaways", gw_start), web.post("/api/guilds/{id}/giveaways/{gid}/{act}", gw_act), web.delete("/api/guilds/{id}/giveaways/{gid}", gw_del), web.get("/api/guilds/{id}/inviters", inviters), web.get("/api/guilds/{id}/cases", cases_get), web.put("/api/guilds/{id}/cases/{cid}", case_put), web.delete("/api/guilds/{id}/cases/{cid}", case_delete), web.get("/api/guilds/{id}/templates", tpl_get), web.put("/api/guilds/{id}/templates/{tid}", tpl_put), web.delete("/api/guilds/{id}/templates/{tid}", tpl_delete), web.post("/api/guilds/{id}/templates/{tid}/send", tpl_send), web.get("/api/guilds/{id}/panels", panels_get), web.put("/api/guilds/{id}/panels/{pid}", panel_put), web.delete("/api/guilds/{id}/panels/{pid}", panel_delete), web.post("/api/guilds/{id}/panels/{pid}/post", panel_post), web.post("/api/guilds/{id}/announce", announce), web.put("/api/guilds/{id}/{sec}", section_put)])
+        web.get("/api/guilds/{id}", guild_get), web.get("/api/guilds/{id}/overview", overview), web.get("/logo.jpg", logo), web.get("/spidey-pfp.jpg", logo), web.get("/api/guilds/{id}/rroles", rr_list), web.put("/api/guilds/{id}/rroles/{pid}", rr_put), web.delete("/api/guilds/{id}/rroles/{pid}", rr_delete), web.post("/api/guilds/{id}/rroles/{pid}/post", rr_post), web.get("/api/guilds/{id}/giveaways", gw_list), web.post("/api/guilds/{id}/giveaways", gw_start), web.post("/api/guilds/{id}/giveaways/{gid}/{act}", gw_act), web.delete("/api/guilds/{id}/giveaways/{gid}", gw_del), web.get("/api/guilds/{id}/inviters", inviters), web.get("/api/guilds/{id}/cases", cases_get), web.put("/api/guilds/{id}/cases/{cid}", case_put), web.delete("/api/guilds/{id}/cases/{cid}", case_delete), web.get("/api/guilds/{id}/templates", tpl_get), web.put("/api/guilds/{id}/templates/{tid}", tpl_put), web.delete("/api/guilds/{id}/templates/{tid}", tpl_delete), web.post("/api/guilds/{id}/templates/{tid}/send", tpl_send), web.get("/api/guilds/{id}/panels", panels_get), web.put("/api/guilds/{id}/panels/{pid}", panel_put), web.delete("/api/guilds/{id}/panels/{pid}", panel_delete), web.post("/api/guilds/{id}/panels/{pid}/post", panel_post), web.post("/api/guilds/{id}/announce", announce), web.get("/api/guilds/{id}/autoreact", ar_get), web.put("/api/guilds/{id}/autoreact", ar_put), web.put("/api/guilds/{id}/{sec}", section_put)])
     from urllib.parse import urlparse
     path = (urlparse(REDIRECT or "").path or "").rstrip("/")
     if path and path not in ("/auth/callback", "") and not any(getattr(r, "resource", None) and r.resource.canonical == path for r in app.router.routes()):
@@ -784,6 +809,18 @@ nav button{transition:background .15s,color .15s,padding .15s}nav>button:hover{c
 .qcard{border:1px dashed var(--line);border-radius:12px;padding:12px;margin-top:12px;display:grid;gap:8px}.qcard input,.qcard select{max-width:none}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:8px}.qrow{display:flex;justify-content:space-between;align-items:center}.qrow label{display:flex;align-items:center;gap:10px;font-weight:400}
 .row.st .btn{flex:none}
+.arc{background:var(--panel);border:1px solid var(--line);border-radius:14px;margin-top:12px;overflow:hidden}
+.arh{display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer}
+.arh .ars{flex:1;min-width:0}.arh .ars b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.arh .ars small{display:block;color:var(--mu);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.arb{padding:0 16px 8px;border-top:1px solid var(--line)}
+.achips{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.achip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:99px;padding:3px 6px 3px 12px;font-size:.9rem}
+.achip.emo{padding-left:8px;font-size:1.15rem}.achip img{width:22px;height:22px;object-fit:contain}
+.achip button{background:none;border:0;color:var(--mu);cursor:pointer;font-size:1rem;line-height:1;padding:0 4px}.achip button:hover{color:var(--bad)}
+.egrid{display:flex;flex-wrap:wrap;gap:4px;max-height:170px;overflow:auto;padding:6px;border:1px solid var(--line);border-radius:10px}
+.egrid button{width:36px;height:36px;display:grid;place-items:center;background:none;border:1px solid transparent;border-radius:8px;cursor:pointer;font-size:1.25rem;padding:0}
+.egrid button img{width:26px;height:26px;object-fit:contain}.egrid button:hover{background:#ffffff0f}.egrid button.on{border-color:var(--ac);background:var(--acx)}
+.etabs{display:flex;gap:6px}
 .toast{color:var(--ac)}.toast.bad{color:var(--bad)}
 .wrap{max-width:1180px}.layout{grid-template-columns:240px 1fr}
 .hero{margin-bottom:24px}.hero h2{font-size:clamp(1.9rem,5vw,2.8rem);letter-spacing:-.035em;margin:0 0 6px}.hero p{color:var(--mu);margin:0 0 18px}
@@ -970,10 +1007,10 @@ async function loadServers(){
 }
 const SPECIAL=[['overview','Overview'],['board','Leaderboard'],['cases','Mod cases'],['panels','Ticket panels'],['otickets','Open tickets'],['announce','Announce']];
 let TABS=[],OV=null;
-const TITLES={rroles:'Reaction roles',giveaways:'Giveaways',invites:'Invite tracker',inviters:'Top inviters',leave:'Leave messages',joinroles:'Join roles',messages:'Messages',overview:'Overview',automod:'AutoMod',welcome:'Welcome',leveling:'Leveling',moderation:'Moderation',utility:'Suggestions',tickets:'Ticket settings',panels:'Ticket panels',otickets:'Open tickets',board:'Leaderboard',cases:'Mod cases',announce:'Announce'};
-const ICON={rroles:'\ud83c\udff7\ufe0f',giveaways:'\ud83c\udf89',invites:'\ud83d\udce8',inviters:'\ud83c\udfc5',leave:'\ud83d\udeaa',joinroles:'\ud83c\udfad',messages:'\ud83d\udcac',overview:'\ud83c\udfe0',automod:'\ud83d\udee1\ufe0f',welcome:'\ud83d\udc4b',leveling:'\u2b50',moderation:'\ud83d\udd28',utility:'\ud83d\udca1',tickets:'\u2699\ufe0f',panels:'\ud83c\udfab',otickets:'\ud83d\udceb',board:'\ud83c\udfc6',cases:'\ud83d\udccb',announce:'\ud83d\udce3'};
-const DESC={rroles:'Let members pick their own roles with buttons, a menu or emoji reactions.',giveaways:'Start giveaways and let members enter with one button.',invites:'See who invited each new member and post it to a channel.',inviters:'The members who brought in the most people.',leave:'Say goodbye when someone leaves the server.',joinroles:'Roles and checks for brand new members.',messages:'Build reusable messages with embeds and buttons, then send them anywhere.',overview:'A quick look at your server and what Spidey is doing in it.',automod:'Rules that keep your chat clean.',welcome:'Greet new members and say goodbye.',leveling:'XP, levels and role rewards.',moderation:'Where moderation actions are logged.',utility:'Where /suggest posts end up.',tickets:'Default settings for the ticket system.',panels:'Build ticket panels with buttons and forms.',otickets:'Tickets that are open right now.',board:'Your most active members.',cases:'The latest moderation actions.',announce:'Post a message as Spidey.'};
-const GROUPS=[['',['overview']],['Modules',['automod','welcome','leave','joinroles','rroles','invites','leveling','moderation','utility']],['Tickets',['tickets','panels','otickets']],['Insights',['board','inviters','cases']],['Tools',['messages','giveaways','announce']]];
+const TITLES={autoreact:'React',rroles:'Reaction roles',giveaways:'Giveaways',invites:'Invite tracker',inviters:'Top inviters',leave:'Leave messages',joinroles:'Join roles',messages:'Messages',overview:'Overview',automod:'AutoMod',welcome:'Welcome',leveling:'Leveling',moderation:'Moderation',utility:'Suggestions',tickets:'Ticket settings',panels:'Ticket panels',otickets:'Open tickets',board:'Leaderboard',cases:'Mod cases',announce:'Announce'};
+const ICON={autoreact:'\u26a1',rroles:'\ud83c\udff7\ufe0f',giveaways:'\ud83c\udf89',invites:'\ud83d\udce8',inviters:'\ud83c\udfc5',leave:'\ud83d\udeaa',joinroles:'\ud83c\udfad',messages:'\ud83d\udcac',overview:'\ud83c\udfe0',automod:'\ud83d\udee1\ufe0f',welcome:'\ud83d\udc4b',leveling:'\u2b50',moderation:'\ud83d\udd28',utility:'\ud83d\udca1',tickets:'\u2699\ufe0f',panels:'\ud83c\udfab',otickets:'\ud83d\udceb',board:'\ud83c\udfc6',cases:'\ud83d\udccb',announce:'\ud83d\udce3'};
+const DESC={autoreact:'React with emojis or reply when a message contains a word or sentence you choose.',rroles:'Let members pick their own roles with buttons, a menu or emoji reactions.',giveaways:'Start giveaways and let members enter with one button.',invites:'See who invited each new member and post it to a channel.',inviters:'The members who brought in the most people.',leave:'Say goodbye when someone leaves the server.',joinroles:'Roles and checks for brand new members.',messages:'Build reusable messages with embeds and buttons, then send them anywhere.',overview:'A quick look at your server and what Spidey is doing in it.',automod:'Rules that keep your chat clean.',welcome:'Greet new members and say goodbye.',leveling:'XP, levels and role rewards.',moderation:'Where moderation actions are logged.',utility:'Where /suggest posts end up.',tickets:'Default settings for the ticket system.',panels:'Build ticket panels with buttons and forms.',otickets:'Tickets that are open right now.',board:'Your most active members.',cases:'The latest moderation actions.',announce:'Post a message as Spidey.'};
+const GROUPS=[['',['overview']],['Modules',['automod','welcome','leave','joinroles','autoreact','rroles','invites','leveling','moderation','utility']],['Tickets',['tickets','panels','otickets']],['Insights',['board','inviters','cases']],['Tools',['messages','giveaways','announce']]];
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!==undefined)e.textContent=x;return e};
 const when=t=>new Date(t*1000).toLocaleString([], {dateStyle:'medium',timeStyle:'short'});
 function setHL(g){const h=$('hlogo');h.onerror=()=>{h.onerror=null;h.src='/spidey-pfp.jpg?v=2'};h.src=g&&g.icon?`https://cdn.discordapp.com/icons/${g.id}/${g.icon}.png?size=64`:'/spidey-pfp.jpg?v=2'}
@@ -981,7 +1018,7 @@ async function openGuild(g){
   $('servers').innerHTML='';$('servers').append(spl('Opening '+g.name));
   try{[META,OV]=await Promise.all([api('/api/guilds/'+g.id),api(`/api/guilds/${g.id}/overview`)])}catch(e){alert(e.message);loadServers();return}
   G=g;VAL=clone(META.values);ORIG=clone(META.values);
-  const have=new Set(['overview','rroles','giveaways','inviters','messages','panels','otickets','board','cases','announce',...SCHEMA.filter(s=>VAL[s.id]).map(s=>s.id)]);
+  const have=new Set(['overview','autoreact','rroles','giveaways','inviters','messages','panels','otickets','board','cases','announce',...SCHEMA.filter(s=>VAL[s.id]).map(s=>s.id)]);
   TABS=GROUPS.flatMap(([,ids])=>ids.filter(i=>have.has(i)).map(i=>[i,TITLES[i]]));TAB='overview';CTL=null;
   $('picker').classList.add('hide');$('panel').classList.remove('hide');$('title').textContent=g.name;$('fs').classList.add('on');setHL(g);
   const nv=$('nav');nv.innerHTML='';
@@ -996,7 +1033,7 @@ function renderSpecial(k){
   const list=(rows,empty)=>{if(!rows.length){f.append(el('div','empty',empty));return}const box=el('div','sec');rows.forEach(r=>box.append(r));f.append(box)};
   if(k==='overview'){
     const st=el('div','stats');[['Members',OV.stats.members],['Channels',OV.stats.channels],['Roles',OV.stats.roles],['Bot ping',OV.stats.latency+' ms']].forEach(([a,b])=>{const c=el('div','stat');const bb=el('b','',b);countUp(bb,b);c.append(bb,el('small','',a));st.append(c)});f.append(st);
-    f.append(el('h3','','Quick actions'));const qa=el('div','qa');[['panels','Build a ticket panel','Buttons, forms, categories'],['automod','Tune AutoMod','Spam, links, bad words'],['welcome','Set up welcomes','Messages and auto-roles'],['giveaways','Start a giveaway','Winners are picked for you'],['messages','Create a custom message','Embeds and link buttons'],['announce','Send an announcement','Post as Spidey']].filter(([k])=>TABS.some(t=>t[0]===k)).forEach(([k,t,d])=>{const b=el('button');b.append(el('span','',(ICON[k]||'')+' '+t),el('small','',d));b.onclick=()=>switchTab(k);qa.append(b)});f.append(qa);
+    f.append(el('h3','','Quick actions'));const qa=el('div','qa');[['panels','Build a ticket panel','Buttons, forms, categories'],['automod','Tune AutoMod','Spam, links, bad words'],['welcome','Set up welcomes','Messages and auto-roles'],['giveaways','Start a giveaway','Winners are picked for you'],['autoreact','Set up auto reacts','Emoji and replies for words'],['messages','Create a custom message','Embeds and link buttons'],['announce','Send an announcement','Post as Spidey']].filter(([k])=>TABS.some(t=>t[0]===k)).forEach(([k,t,d])=>{const b=el('button');b.append(el('span','',(ICON[k]||'')+' '+t),el('small','',d));b.onclick=()=>switchTab(k);qa.append(b)});f.append(qa);
     f.append(el('h3','','What is switched on'));
     list(OV.status.map(([n,txt,on,tab])=>{const r=el('div','row st'),d=el('div'),b=el('button','btn ghost','Configure');d.append(el('label','',n),el('small','',txt));b.onclick=()=>switchTab(tab);r.append(el('span','dot'+(on?' on':'')),d,b);return r}),'');
   }else if(k==='board'){
@@ -1004,7 +1041,7 @@ function renderSpecial(k){
     list(L.map((u,i)=>{const r=el('div','row'),d=el('div'),m=el('div','meter');d.append(el('label','',`${i+1}. ${u.name}`),el('small','',`Level ${u.level}, ${u.xp} XP, ${u.messages} messages`));m.append(el('i'));m.firstChild.style.setProperty('--w',(u.xp/top*100)+'%');m.style.setProperty('--w','0');r.append(d,m);return r}),'Nobody has earned XP yet. Turn on Leveling and start chatting.');
   }else if(k==='cases'){renderCases();}else if(k==='otickets'){
     list((OV.tickets||[]).map(t=>{const r=el('div','row'),d=el('div');d.append(el('label','',`#${t.number} ${t.subject}`),el('small','',`Opened by ${t.opener} on ${when(t.created)}. ${t.claimed?'Claimed by '+t.claimed:'Not claimed yet'}`));r.append(d);return r}),'No open tickets.');
-  }else if(k==='panels'){renderPanels();}else if(k==='messages'){renderMessages();}else if(k==='giveaways'){renderGiveaways();}else if(k==='rroles'){renderRR();}else if(k==='inviters'){renderInviters();}else if(k==='announce'){
+  }else if(k==='panels'){renderPanels();}else if(k==='messages'){renderMessages();}else if(k==='giveaways'){renderGiveaways();}else if(k==='rroles'){renderRR();}else if(k==='autoreact'){renderAR();}else if(k==='inviters'){renderInviters();}else if(k==='announce'){
     const box=el('div','sec'),mk=(l,h,c)=>{const r=el('div','row col'),d=el('div');d.append(el('label','',l),el('small','',h));r.append(d,c);box.append(r);return c};
     const ch=el('select');META.channels.forEach(o=>ch.add(new Option('#'+o.name,o.id)));mk('Channel','Where Spidey posts it',ch);
     const ti=el('input');ti.type='text';ti.maxLength=200;ti.placeholder='Announcement';mk('Title','',ti);
@@ -1144,7 +1181,7 @@ function hideBoot(){$('boot').classList.add('gone')}
 $('keep').onchange=()=>{$('dclogin').href='/auth/login?remember='+($('keep').checked?1:0)};
 $('dclogin').onclick=()=>showBoot('Taking you to Discord');
 function moveGlide(){const nv=$('nav');let g=nv.querySelector('.glide');if(!g){g=el('div','glide');nv.prepend(g)}const b=nv.querySelector('button.on');if(!b){g.style.opacity=0;return}g.style.opacity=1;g.style.height=b.offsetHeight+'px';g.style.transform=`translateY(${b.offsetTop}px)`}
-const KW={rroles:'reaction roles button roles self roles dropdown emoji react get role',giveaways:'giveaway prize winner raffle draw reroll',invites:'invite tracker who invited join code',inviters:'invites leaderboard top inviters',leave:'goodbye leave left farewell',joinroles:'auto role join verify account age new members',automod:'spam links invites caps bad words filter punishment',welcome:'greet join leave goodbye autorole embed',leveling:'xp rank level rewards voice',moderation:'log cases ban kick mute',utility:'suggest suggestions',tickets:'ticket category support roles',panels:'ticket panel button form question',otickets:'tickets claimed open',board:'leaderboard top xp',cases:'cases warn ban mute kick history search',announce:'announcement broadcast',messages:'template embed button custom message send'};
+const KW={autoreact:'react auto reply respond emoji trigger keyword word sentence message contains custom server emoji',rroles:'reaction roles button roles self roles dropdown emoji react get role',giveaways:'giveaway prize winner raffle draw reroll',invites:'invite tracker who invited join code',inviters:'invites leaderboard top inviters',leave:'goodbye leave left farewell',joinroles:'auto role join verify account age new members',automod:'spam links invites caps bad words filter punishment',welcome:'greet join leave goodbye autorole embed',leveling:'xp rank level rewards voice',moderation:'log cases ban kick mute',utility:'suggest suggestions',tickets:'ticket category support roles',panels:'ticket panel button form question',otickets:'tickets claimed open',board:'leaderboard top xp',cases:'cases warn ban mute kick history search',announce:'announcement broadcast',messages:'template embed button custom message send'};
 function fsearch(){const q=$('fsearch').value.trim().toLowerCase(),r=$('fsres');r.innerHTML='';if(!q){r.classList.remove('open');return}
   const hits=TABS.filter(([k,t])=>(t+' '+(KW[k]||'')+' '+(DESC[k]||'')).toLowerCase().includes(q)).slice(0,6);
   if(!hits.length){const d=el('div','empty','No feature found');d.style.padding='14px';r.append(d)}
@@ -1332,6 +1369,101 @@ function rrEditor(p){
     try{if(!chs.value)throw new Error('Choose a channel first');await saveD();await api(`/api/guilds/${G.id}/rroles/${D.id}/post`,PJ('POST',{channel:chs.value}));
       D.channel=chs.value;base=clone(D);snap=JSON.stringify(D);out.textContent='Posted. Members can pick their roles now.';touch()}catch(e){out.className='toast bad';out.textContent=e.message}};
   touch();
+}
+// ---------- React tab (auto react / auto reply) ----------
+let ARK=0;
+const AR_MODES=[['word','Contains the word or phrase'],['contains','Contains the text anywhere (even inside other words)'],['exact','The whole message is exactly this'],['starts','The message starts with this']];
+const AR_KINDS=[['emoji','React with emojis'],['reply','Send a text reply'],['both','Both: react and reply']];
+const AR_COMMON=['👍','👎','❤️','🔥','💯','😂','🤣','😭','😍','🥺','😎','🤔','😮','😢','😡','🎉','👏','🙏','💀','👀','✅','❌','⭐','✨','🕷️','🕸️','😏','🤝','💪','🫡','🥳','😴','🤯','😳','🙄','👑','🐐','💎','🚀','🫶'];
+const newAR=()=>({_k:++ARK,id:'',name:'',enabled:true,triggers:[],match:'word',kind:'emoji',emojis:[],reply:'',reply_to:true,channels:[],cooldown:5});
+const arEmoji=s=>{const m=s.match(/^<(a?):(\w+):(\d+)>$/);if(m){const i=el('img');i.src=`https://cdn.discordapp.com/emojis/${m[3]}.${m[1]?'gif':'png'}?size=48`;i.alt=m[2];i.title=':'+m[2]+':';return i}return document.createTextNode(s)};
+const arSplit=txt=>{const out=[];txt.trim().split(/\s+/).forEach(w=>{if(!w)return;
+  if(/^:\w{2,32}:$/.test(w)){out.push(w);return}
+  const parts=w.match(/<a?:\w+:\d+>/g);if(parts&&parts.join('')===w){out.push(...parts);return}
+  if(window.Intl&&Intl.Segmenter){for(const {segment} of new Intl.Segmenter(undefined,{granularity:'grapheme'}).segment(w))out.push(segment)}else out.push(w)});return out};
+const arIsEmoji=s=>/^:\w{2,32}:$/.test(s)||/^<a?:\w+:\d+>$/.test(s)||[...s].some(c=>c.codePointAt(0)>127);
+
+function arTriggers(r,onchange){
+  const w=el('div'),box=el('div','achips'),inp=el('input'),add=el('button','btn ghost sm','Add'),line=el('div','two');
+  inp.type='text';inp.maxLength=200;inp.placeholder='Type a word or a sentence, then press Enter';line.style.gridTemplateColumns='1fr auto';line.style.marginTop='8px';
+  const draw=()=>{box.innerHTML='';if(!r.triggers.length)box.append(el('small','','Nothing yet. Add at least one word or sentence.'));
+    r.triggers.forEach((t,i)=>{const c=el('span','achip');c.append(t);const x=el('button','','\u00d7');x.type='button';x.title='Remove';x.onclick=()=>{r.triggers.splice(i,1);draw();onchange();touch()};c.append(x);box.append(c)})};
+  const commit=()=>{const v=inp.value.trim();if(!v)return;inp.value='';if(r.triggers.length>=25||r.triggers.some(t=>t.toLowerCase()===v.toLowerCase()))return;r.triggers.push(v);draw();onchange();touch()};
+  inp.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();commit()}};inp.onblur=commit;add.onclick=commit;
+  line.append(inp,add);w.append(box,line);draw();return w;
+}
+
+function arEmojis(r,onchange){
+  const w=el('div'),sel=el('div','achips'),msg=el('small',''),tabs=el('div','etabs'),srv=el('div','egrid'),com=el('div','egrid'),line=el('div','two'),inp=el('input'),add=el('button','btn ghost sm','Add');
+  const have=META.emojis||[];
+  inp.type='text';inp.placeholder='Type or paste emojis here';line.style.gridTemplateColumns='1fr auto';
+  const toggle=s=>{const i=r.emojis.indexOf(s);msg.textContent='';
+    if(i>=0)r.emojis.splice(i,1);else if(r.emojis.length>=5){msg.textContent='You can pick up to 5 emojis per rule.';return}else r.emojis.push(s);
+    draw();onchange();touch()};
+  const draw=()=>{sel.innerHTML='';if(!r.emojis.length)sel.append(el('small','','No emoji chosen yet'));
+    r.emojis.forEach(s=>{const c=el('span','achip emo');c.append(arEmoji(s));const x=el('button','','\u00d7');x.type='button';x.title='Remove';x.onclick=()=>toggle(s);c.append(x);sel.append(c)});
+    w.querySelectorAll('.egrid button').forEach(b=>b.classList.toggle('on',r.emojis.includes(b.dataset.e)))};
+  have.forEach(e=>{const b=el('button');b.type='button';b.dataset.e=e.str;b.title=':'+e.name+':';b.append(arEmoji(e.str));b.onclick=()=>toggle(e.str);srv.append(b)});
+  if(!have.length)srv.append(el('small','','This server has no custom emojis yet.'));
+  AR_COMMON.forEach(e=>{const b=el('button','',e);b.type='button';b.dataset.e=e;b.onclick=()=>toggle(e);com.append(b)});
+  const tS=el('button','btn ghost sm','This server\u2019s emojis'),tC=el('button','btn ghost sm','Common emojis');
+  const show=k=>{srv.style.display=k==='s'?'':'none';com.style.display=k==='c'?'':'none';tS.classList.toggle('pri',k==='s');tC.classList.toggle('pri',k==='c')};
+  tS.type=tC.type='button';tS.onclick=()=>show('s');tC.onclick=()=>show('c');tabs.append(tS,tC);show(have.length?'s':'c');
+  const commit=()=>{const v=inp.value;if(!v.trim())return;msg.textContent='';const bad=[];
+    arSplit(v).forEach(s=>{if(!arIsEmoji(s))bad.push(s);else if(!r.emojis.includes(s)&&r.emojis.length<5)r.emojis.push(s)});
+    inp.value=bad.join(' ');if(bad.length)msg.textContent=`"${bad.join(' ')}" is not an emoji.`;draw();onchange();touch()};
+  inp.onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();commit()}};inp.onblur=commit;add.onclick=commit;
+  line.append(inp,add);
+  const tip=el('small','','Tip: open your emoji keyboard with Win + . (Windows) or Ctrl + Cmd + Space (Mac). An emoji from another server works too if Spidey is in that server: paste it like <:name:123456789012345678>.');
+  w.append(sel,msg,el('div'),tabs,srv,com,line,tip);[...w.children].forEach(c=>{if(c!==sel&&c.tagName!=='SMALL')c.style.marginTop='8px'});draw();return w;
+}
+
+async function renderAR(){
+  CTL=null;PREV=null;touch();const f=$('fields');f.innerHTML='';$('secTitle').textContent='React';skel(f);let D;
+  try{D=await api(`/api/guilds/${G.id}/autoreact`)}catch(e){f.innerHTML='';f.append(el('div','empty',e.message));return}
+  D.rules.forEach(r=>r._k=++ARK);
+  const open=new Set();let snap=JSON.stringify(D);
+  f.innerHTML='';
+  const top=el('div','bar-top'),nb=el('button','btn pri','New rule'),list=el('div');
+  top.append(el('p','hint','Pick the words or sentences to look for. When a message contains one, Spidey reacts with emojis, sends a reply, or both. The first matching reply rule wins, so one message never gets a pile of replies.'),nb);f.append(top);
+  const mb=el('div','sec');fR(mb,'React is on','Turn this off to pause every rule below at once',fW(D,'enabled'));f.append(mb,list);
+  const title=r=>r.name||(r.triggers[0]?'\u201c'+r.triggers[0]+'\u201d':'New rule');
+  const summary=r=>{const what=r.kind==='emoji'?`reacts with ${r.emojis.length} emoji${r.emojis.length===1?'':'s'}`:r.kind==='reply'?'sends a reply':'reacts and replies';
+    return `${r.triggers.length?r.triggers.slice(0,4).join(', ')+(r.triggers.length>4?'\u2026':''):'no triggers yet'}  \u2192  ${what}`};
+  const draw=()=>{list.innerHTML='';nb.disabled=D.rules.length>=50;
+    if(!D.rules.length){list.append(el('div','empty','No rules yet. Create one and Spidey will start reacting.'));return}
+    D.rules.forEach((r,i)=>list.append(card(r,i)))};
+  const card=(r,i)=>{
+    const c=el('div','arc'),hd=el('div','arh'),sw=fW(r,'enabled'),sm=el('div','ars'),tg=el('button','btn ghost sm',open.has(r._k)?'Close':'Edit'),rm=el('button','btn ghost sm','Delete');
+    const paint=()=>{sm.innerHTML='';sm.append(el('b','',title(r)),el('small','',summary(r)))};paint();
+    const flip=()=>{open.has(r._k)?open.delete(r._k):open.add(r._k);draw()};
+    hd.onclick=flip;[sw,tg,rm].forEach(x=>x.addEventListener('click',e=>e.stopPropagation()));tg.onclick=flip;
+    rm.onclick=()=>{if(!confirm('Delete this rule?'))return;D.rules.splice(i,1);draw();touch()};
+    hd.append(sw,sm,tg,rm);c.append(hd);
+    if(open.has(r._k)){
+      const b=el('div','arb');
+      fR(b,'Rule name','Only you see this. Optional',fT(r,'name',60)).querySelector('input').addEventListener('input',paint);
+      fR(b,'When a message has','Words or sentences to look for. Capital letters do not matter',arTriggers(r,paint),1);
+      fR(b,'Match','How strictly the message has to match',fS(r,'match',AR_MODES));
+      const ks=fS(r,'kind',AR_KINDS);fR(b,'What Spidey does','',ks);
+      const dyn=el('div');b.append(dyn);
+      const drawD=()=>{dyn.innerHTML='';paint();
+        if(r.kind!=='reply')fR(dyn,'Emojis','Up to 5. Tap an emoji to pick it, tap again to remove it',arEmojis(r,paint),1);
+        if(r.kind!=='emoji'){
+          const ta=fA(r,'reply');ta.maxLength=2000;ta.placeholder='Example: {user} that is so legit :fire:';
+          fR(dyn,'Reply text','Placeholders: {user} {name} {server} {channel}. Type :emojiname: to use one of this server\u2019s emojis',ta,1);
+          fR(dyn,'Reply to their message','On = a real Discord reply to the message. Off = a normal message in the channel',fW(r,'reply_to'))}};
+      ks.addEventListener('change',drawD);drawD();
+      fR(b,'Only in these channels','Leave everything unticked to work in every channel',fC(r,'channels',META.channels),1);
+      const cd=fN(r,'cooldown',0,3600);cd.title='Seconds';fR(b,'Cooldown (seconds)','Minimum wait before this rule can fire again in the same channel. 0 = no wait',cd);
+      c.append(b)}
+    return c};
+  nb.onclick=()=>{if(D.rules.length>=50)return;const r=newAR();D.rules.push(r);open.add(r._k);draw();touch()};
+  const save=async()=>{const r=await api(`/api/guilds/${G.id}/autoreact`,PJ('PUT',{enabled:D.enabled,rules:D.rules}));
+    D.enabled=r.enabled;D.rules=r.rules.map((n,i)=>({...n,_k:(D.rules[i]||{})._k||++ARK}));snap=JSON.stringify(D);draw();
+    api(`/api/guilds/${G.id}/overview`).then(o=>OV=o).catch(()=>{})};
+  CTL={dirty:()=>JSON.stringify(D)!==snap,save,reset:()=>renderAR()};
+  draw();touch();
 }
 function webSvg(c){const n='http://www.w3.org/2000/svg',s=document.createElementNS(n,'svg');s.setAttribute('viewBox','0 0 400 400');if(c)s.setAttribute('class',c);
   const A=[0,18,36,54,72,90].map(a=>a*Math.PI/180);let d='';A.forEach(a=>d+=`M0 0L${400*Math.cos(a)} ${400*Math.sin(a)}`);
