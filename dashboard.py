@@ -333,7 +333,7 @@ def build(bot) -> web.Application:
         A, W, L, T, Mo = (bot.get_cog(x) for x in ("AutoMod", "Welcome", "Leveling", "Tickets", "Moderation"))
         out = {"stats": {"members": g.member_count, "channels": len(g.channels), "roles": len(g.roles), "latency": round(bot.latency * 1000)}, "status": []}
         if A: c = A.cfg(g.id); k = sum(1 for v in c["modules"].values() if v); out["status"].append(["AutoMod", f"{k} of {len(c['modules'])} rules on", k > 0, "automod"])
-        if W: c = W.cfg(g.id); ok = bool(c.get("welcome_enabled", True) and c["welcome_channel"]); out["status"].append(["Welcome", "Welcoming new members" if ok else "Off or no channel set", ok, "joinmsg"])
+        if W: c = W.cfg(g.id); ok = bool(c.get("welcome_enabled", True) and c["welcome_channel"]); out["status"].append(["Welcome", "Welcoming new members" if ok else "Off or no channel set", ok, "welcome"])
         if L: ok = bool(L.guild(g.id)["config"]["enabled"]); out["status"].append(["Leveling", "Members earn XP" if ok else "Off", ok, "leveling"])
         if Mo: ok = bool(Mo.store.guild(g.id)["log_channel"]); out["status"].append(["Moderation log", "Logging every action" if ok else "No log channel set", ok, "moderation"])
         if T: ok = bool(T.cfg(g.id)["category"]); out["status"].append(["Tickets", "Ready" if ok else "Not set up", ok, "tickets"])
@@ -701,62 +701,13 @@ def build(bot) -> web.Application:
         cog.data[str(g.id)] = new; cog.save()
         return J(ar_out(new))
 
-    # ---- join / leave message editor + announcements (same editor, same checks as the bot uses when it sends)
-    def wmc(request):
-        gid = request.match_info["id"]
-        if (e := deny(request, gid)): return e, None, None, None
-        cog, kind = bot.get_cog("Welcome"), request.match_info.get("kind")
-        if kind not in ("join", "leave"): return J({"error": "Unknown message"}, status=404), None, None, None
-        if not cog: return J({"error": "The Welcome module is not loaded"}, status=404), None, None, None
-        return None, bot.get_guild(int(gid)), cog, kind
-
-    async def msg_get(request):
-        e, g, cog, kind = wmc(request)
-        return e or J(cog.editor_state(g, kind))
-
-    async def msg_put(request):
-        e, g, cog, kind = wmc(request)
-        if e: return e
-        try: cog.save_editor(g, kind, await request.json())
-        except (ValueError, TypeError, AttributeError, KeyError) as ex: return J({"error": str(ex) or "Invalid message"}, status=400)
-        return J({"ok": True})
-
-    async def msg_revert(request):
-        e, g, cog, kind = wmc(request)
-        if e: return e
-        cog.revert_editor(g, kind); return J({"ok": True})
-
-    async def msg_test(request):
-        e, g, cog, kind = wmc(request)
-        if e: return e
-        try: where = await cog.send_test(g, kind, int(request["s"]["user"]["id"]), await request.json())
-        except (ValueError, TypeError, AttributeError, KeyError) as ex: return J({"error": str(ex) or "Invalid message"}, status=400)
-        return J({"ok": True, "where": where})
-
-    async def send_msg(request):
-        gid = request.match_info["id"]
-        if (e := deny(request, gid)): return e
-        from welcome import clean_msg, build_custom, guild_ctx
-        g, b = bot.get_guild(int(gid)), await request.json()
-        try: ch = g.get_channel(int(b.get("channel") or 0))
-        except (ValueError, TypeError): ch = None
-        if not isinstance(ch, discord.TextChannel): return J({"error": "Choose a text channel first."}, status=400)
-        try: built = build_custom(clean_msg(b.get("message") or {}), guild_ctx(g))
-        except (ValueError, TypeError, AttributeError) as ex: return J({"error": str(ex) or "Invalid message"}, status=400)
-        if built is None: return J({"error": "Add some text or an embed first."}, status=400)
-        content, embeds, view = built
-        try: await ch.send(content=content, embeds=embeds, **({"view": view} if view else {}))
-        except discord.Forbidden: return J({"error": "I can't post in that channel. Check my permissions there."}, status=400)
-        except discord.HTTPException: return J({"error": "Discord rejected the message. Check the emoji, links and my permissions."}, status=400)
-        return J({"ok": True})
-
     async def logo(request): return web.Response(body=base64.b64decode(LOGO_B64), content_type="image/jpeg", headers={"Cache-Control": "public, no-store"})
 
     async def index(request): return web.Response(text=INDEX_HTML, content_type="text/html")
     app = web.Application(middlewares=[session_mw])
     app.add_routes([web.get("/", index), web.get("/auth/login", login), web.get("/auth/callback", callback), web.get("/auth/logout", logout),
         web.get("/api/config", config), web.get("/api/me", me), web.get("/api/schema", schema), web.get("/api/guilds", guilds),
-        web.get("/api/guilds/{id}", guild_get), web.get("/api/guilds/{id}/overview", overview), web.get("/logo.jpg", logo), web.get("/spidey-pfp.jpg", logo), web.get("/api/guilds/{id}/rroles", rr_list), web.put("/api/guilds/{id}/rroles/{pid}", rr_put), web.delete("/api/guilds/{id}/rroles/{pid}", rr_delete), web.post("/api/guilds/{id}/rroles/{pid}/post", rr_post), web.get("/api/guilds/{id}/giveaways", gw_list), web.post("/api/guilds/{id}/giveaways", gw_start), web.post("/api/guilds/{id}/giveaways/{gid}/{act}", gw_act), web.delete("/api/guilds/{id}/giveaways/{gid}", gw_del), web.get("/api/guilds/{id}/inviters", inviters), web.get("/api/guilds/{id}/cases", cases_get), web.put("/api/guilds/{id}/cases/{cid}", case_put), web.delete("/api/guilds/{id}/cases/{cid}", case_delete), web.get("/api/guilds/{id}/templates", tpl_get), web.put("/api/guilds/{id}/templates/{tid}", tpl_put), web.delete("/api/guilds/{id}/templates/{tid}", tpl_delete), web.post("/api/guilds/{id}/templates/{tid}/send", tpl_send), web.get("/api/guilds/{id}/panels", panels_get), web.put("/api/guilds/{id}/panels/{pid}", panel_put), web.delete("/api/guilds/{id}/panels/{pid}", panel_delete), web.post("/api/guilds/{id}/panels/{pid}/post", panel_post), web.post("/api/guilds/{id}/announce", announce), web.get("/api/guilds/{id}/autoreact", ar_get), web.put("/api/guilds/{id}/autoreact", ar_put), web.get("/api/guilds/{id}/msgs/{kind}", msg_get), web.put("/api/guilds/{id}/msgs/{kind}", msg_put), web.delete("/api/guilds/{id}/msgs/{kind}", msg_revert), web.post("/api/guilds/{id}/msgs/{kind}/test", msg_test), web.post("/api/guilds/{id}/send", send_msg), web.put("/api/guilds/{id}/{sec}", section_put)])
+        web.get("/api/guilds/{id}", guild_get), web.get("/api/guilds/{id}/overview", overview), web.get("/logo.jpg", logo), web.get("/spidey-pfp.jpg", logo), web.get("/api/guilds/{id}/rroles", rr_list), web.put("/api/guilds/{id}/rroles/{pid}", rr_put), web.delete("/api/guilds/{id}/rroles/{pid}", rr_delete), web.post("/api/guilds/{id}/rroles/{pid}/post", rr_post), web.get("/api/guilds/{id}/giveaways", gw_list), web.post("/api/guilds/{id}/giveaways", gw_start), web.post("/api/guilds/{id}/giveaways/{gid}/{act}", gw_act), web.delete("/api/guilds/{id}/giveaways/{gid}", gw_del), web.get("/api/guilds/{id}/inviters", inviters), web.get("/api/guilds/{id}/cases", cases_get), web.put("/api/guilds/{id}/cases/{cid}", case_put), web.delete("/api/guilds/{id}/cases/{cid}", case_delete), web.get("/api/guilds/{id}/templates", tpl_get), web.put("/api/guilds/{id}/templates/{tid}", tpl_put), web.delete("/api/guilds/{id}/templates/{tid}", tpl_delete), web.post("/api/guilds/{id}/templates/{tid}/send", tpl_send), web.get("/api/guilds/{id}/panels", panels_get), web.put("/api/guilds/{id}/panels/{pid}", panel_put), web.delete("/api/guilds/{id}/panels/{pid}", panel_delete), web.post("/api/guilds/{id}/panels/{pid}/post", panel_post), web.post("/api/guilds/{id}/announce", announce), web.get("/api/guilds/{id}/autoreact", ar_get), web.put("/api/guilds/{id}/autoreact", ar_put), web.put("/api/guilds/{id}/{sec}", section_put)])
     from urllib.parse import urlparse
     path = (urlparse(REDIRECT or "").path or "").rstrip("/")
     if path and path not in ("/auth/callback", "") and not any(getattr(r, "resource", None) and r.resource.canonical == path for r in app.router.routes()):
@@ -1000,9 +951,6 @@ header{gap:12px}header #title{min-width:0;overflow:hidden;text-overflow:ellipsis
 .dmsg.mini{padding:10px;font-size:.82rem;pointer-events:none}.eth.fake{display:grid;place-items:center;background:#5865f2;color:#fff;font-weight:700;border-radius:50%;width:44px;height:44px;flex:none}
 .selmock{background:#1e1f22;border:1px solid #3f4147;border-radius:6px;padding:10px 12px;margin-top:8px;color:#b5bac1}
 .rx{display:inline-grid;place-items:center;min-width:34px;height:28px;padding:0 8px;border-radius:8px;background:#2b2d31;border:1px solid #3f4147}
-.mn{background:#5865f240;color:#c9cdfb;border-radius:3px;padding:0 2px}.dmsg code{background:#1e1f22;border-radius:4px;padding:1px 4px;font-size:.85em}
-.phs{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 4px}.phs button{background:var(--bg);border:1px solid var(--line);border-radius:99px;padding:3px 11px;font-size:.82rem;cursor:pointer;color:var(--tx);transition:border-color .15s}.phs button:hover{border-color:var(--ac)}
-.note{border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:10px 14px;margin:12px 0;font-size:.88rem;color:var(--mu)}.note.warn{border-color:#e0222d55;background:var(--acx);color:var(--tx)}
 </style></head><body>
 <div class="prog" id="prog"></div><div class="scrim" id="scrim"></div><div class="boot" id="boot"></div>
 <section id="login" class="login hide"><div class="hang"><i class="cord"></i><img class="medal" src="/spidey-pfp.jpg?v=2" alt="Spidey"></div><div class="in">
@@ -1059,10 +1007,10 @@ async function loadServers(){
 }
 const SPECIAL=[['overview','Overview'],['board','Leaderboard'],['cases','Mod cases'],['panels','Ticket panels'],['otickets','Open tickets'],['announce','Announce']];
 let TABS=[],OV=null;
-const TITLES={autoreact:'React',rroles:'Reaction roles',giveaways:'Giveaways',invites:'Invite tracker',inviters:'Top inviters',leave:'Leave messages',joinroles:'Join roles',messages:'Messages',overview:'Overview',automod:'AutoMod',welcome:'Welcome',leveling:'Leveling',moderation:'Moderation',utility:'Suggestions',tickets:'Ticket settings',panels:'Ticket panels',otickets:'Open tickets',board:'Leaderboard',cases:'Mod cases',announce:'Announce',joinmsg:'Join message',leavemsg:'Leave message'};
-const ICON={autoreact:'\u26a1',rroles:'\ud83c\udff7\ufe0f',giveaways:'\ud83c\udf89',invites:'\ud83d\udce8',inviters:'\ud83c\udfc5',leave:'\ud83d\udeaa',joinroles:'\ud83c\udfad',messages:'\ud83d\udcac',overview:'\ud83c\udfe0',automod:'\ud83d\udee1\ufe0f',welcome:'\ud83d\udc4b',leveling:'\u2b50',moderation:'\ud83d\udd28',utility:'\ud83d\udca1',tickets:'\u2699\ufe0f',panels:'\ud83c\udfab',otickets:'\ud83d\udceb',board:'\ud83c\udfc6',cases:'\ud83d\udccb',announce:'\ud83d\udce3',joinmsg:'\ud83d\udc4b',leavemsg:'\ud83d\udeaa'};
-const DESC={autoreact:'React with emojis or reply when a message contains a word or sentence you choose.',rroles:'Let members pick their own roles with buttons, a menu or emoji reactions.',giveaways:'Start giveaways and let members enter with one button.',invites:'See who invited each new member and post it to a channel.',inviters:'The members who brought in the most people.',leave:'Say goodbye when someone leaves the server.',joinroles:'Roles and checks for brand new members.',messages:'Build reusable messages with embeds and buttons, then send them anywhere.',overview:'A quick look at your server and what Spidey is doing in it.',automod:'Rules that keep your chat clean.',welcome:'Greet new members and say goodbye.',leveling:'XP, levels and role rewards.',moderation:'Where moderation actions are logged.',utility:'Where /suggest posts end up.',tickets:'Default settings for the ticket system.',panels:'Build ticket panels with buttons and forms.',otickets:'Tickets that are open right now.',board:'Your most active members.',cases:'The latest moderation actions.',announce:'Post a message as Spidey with embeds, images and link buttons.',joinmsg:'The message new members get when they join. Design it with embeds and see a live preview.',leavemsg:'The message posted when someone leaves the server.'};
-const GROUPS=[['',['overview']],['Modules',['automod','joinroles','autoreact','rroles','invites','leveling','moderation','utility']],['Announcements',['joinmsg','leavemsg','announce']],['Tickets',['tickets','panels','otickets']],['Insights',['board','inviters','cases']],['Tools',['messages','giveaways']]];
+const TITLES={autoreact:'React',rroles:'Reaction roles',giveaways:'Giveaways',invites:'Invite tracker',inviters:'Top inviters',leave:'Leave messages',joinroles:'Join roles',messages:'Messages',overview:'Overview',automod:'AutoMod',welcome:'Welcome',leveling:'Leveling',moderation:'Moderation',utility:'Suggestions',tickets:'Ticket settings',panels:'Ticket panels',otickets:'Open tickets',board:'Leaderboard',cases:'Mod cases',announce:'Announce'};
+const ICON={autoreact:'\u26a1',rroles:'\ud83c\udff7\ufe0f',giveaways:'\ud83c\udf89',invites:'\ud83d\udce8',inviters:'\ud83c\udfc5',leave:'\ud83d\udeaa',joinroles:'\ud83c\udfad',messages:'\ud83d\udcac',overview:'\ud83c\udfe0',automod:'\ud83d\udee1\ufe0f',welcome:'\ud83d\udc4b',leveling:'\u2b50',moderation:'\ud83d\udd28',utility:'\ud83d\udca1',tickets:'\u2699\ufe0f',panels:'\ud83c\udfab',otickets:'\ud83d\udceb',board:'\ud83c\udfc6',cases:'\ud83d\udccb',announce:'\ud83d\udce3'};
+const DESC={autoreact:'React with emojis or reply when a message contains a word or sentence you choose.',rroles:'Let members pick their own roles with buttons, a menu or emoji reactions.',giveaways:'Start giveaways and let members enter with one button.',invites:'See who invited each new member and post it to a channel.',inviters:'The members who brought in the most people.',leave:'Say goodbye when someone leaves the server.',joinroles:'Roles and checks for brand new members.',messages:'Build reusable messages with embeds and buttons, then send them anywhere.',overview:'A quick look at your server and what Spidey is doing in it.',automod:'Rules that keep your chat clean.',welcome:'Greet new members and say goodbye.',leveling:'XP, levels and role rewards.',moderation:'Where moderation actions are logged.',utility:'Where /suggest posts end up.',tickets:'Default settings for the ticket system.',panels:'Build ticket panels with buttons and forms.',otickets:'Tickets that are open right now.',board:'Your most active members.',cases:'The latest moderation actions.',announce:'Post a message as Spidey.'};
+const GROUPS=[['',['overview']],['Modules',['automod','welcome','leave','joinroles','autoreact','rroles','invites','leveling','moderation','utility']],['Tickets',['tickets','panels','otickets']],['Insights',['board','inviters','cases']],['Tools',['messages','giveaways','announce']]];
 const el=(t,c,x)=>{const e=document.createElement(t);if(c)e.className=c;if(x!==undefined)e.textContent=x;return e};
 const when=t=>new Date(t*1000).toLocaleString([], {dateStyle:'medium',timeStyle:'short'});
 function setHL(g){const h=$('hlogo');h.onerror=()=>{h.onerror=null;h.src='/spidey-pfp.jpg?v=2'};h.src=g&&g.icon?`https://cdn.discordapp.com/icons/${g.id}/${g.icon}.png?size=64`:'/spidey-pfp.jpg?v=2'}
@@ -1070,7 +1018,7 @@ async function openGuild(g){
   $('servers').innerHTML='';$('servers').append(spl('Opening '+g.name));
   try{[META,OV]=await Promise.all([api('/api/guilds/'+g.id),api(`/api/guilds/${g.id}/overview`)])}catch(e){alert(e.message);loadServers();return}
   G=g;VAL=clone(META.values);ORIG=clone(META.values);
-  const have=new Set(['overview','autoreact','rroles','giveaways','inviters','messages','panels','otickets','board','cases','announce',...(VAL.welcome?['joinmsg','leavemsg']:[]),...SCHEMA.filter(s=>VAL[s.id]).map(s=>s.id)]);
+  const have=new Set(['overview','autoreact','rroles','giveaways','inviters','messages','panels','otickets','board','cases','announce',...SCHEMA.filter(s=>VAL[s.id]).map(s=>s.id)]);
   TABS=GROUPS.flatMap(([,ids])=>ids.filter(i=>have.has(i)).map(i=>[i,TITLES[i]]));TAB='overview';CTL=null;
   $('picker').classList.add('hide');$('panel').classList.remove('hide');$('title').textContent=g.name;$('fs').classList.add('on');setHL(g);
   const nv=$('nav');nv.innerHTML='';
@@ -1085,7 +1033,7 @@ function renderSpecial(k){
   const list=(rows,empty)=>{if(!rows.length){f.append(el('div','empty',empty));return}const box=el('div','sec');rows.forEach(r=>box.append(r));f.append(box)};
   if(k==='overview'){
     const st=el('div','stats');[['Members',OV.stats.members],['Channels',OV.stats.channels],['Roles',OV.stats.roles],['Bot ping',OV.stats.latency+' ms']].forEach(([a,b])=>{const c=el('div','stat');const bb=el('b','',b);countUp(bb,b);c.append(bb,el('small','',a));st.append(c)});f.append(st);
-    f.append(el('h3','','Quick actions'));const qa=el('div','qa');[['panels','Build a ticket panel','Buttons, forms, categories'],['automod','Tune AutoMod','Spam, links, bad words'],['joinmsg','Set up welcomes','Join message with embeds and a preview'],['giveaways','Start a giveaway','Winners are picked for you'],['autoreact','Set up auto reacts','Emoji and replies for words'],['messages','Create a custom message','Embeds and link buttons'],['announce','Send an announcement','Post as Spidey']].filter(([k])=>TABS.some(t=>t[0]===k)).forEach(([k,t,d])=>{const b=el('button');b.append(el('span','',(ICON[k]||'')+' '+t),el('small','',d));b.onclick=()=>switchTab(k);qa.append(b)});f.append(qa);
+    f.append(el('h3','','Quick actions'));const qa=el('div','qa');[['panels','Build a ticket panel','Buttons, forms, categories'],['automod','Tune AutoMod','Spam, links, bad words'],['welcome','Set up welcomes','Messages and auto-roles'],['giveaways','Start a giveaway','Winners are picked for you'],['autoreact','Set up auto reacts','Emoji and replies for words'],['messages','Create a custom message','Embeds and link buttons'],['announce','Send an announcement','Post as Spidey']].filter(([k])=>TABS.some(t=>t[0]===k)).forEach(([k,t,d])=>{const b=el('button');b.append(el('span','',(ICON[k]||'')+' '+t),el('small','',d));b.onclick=()=>switchTab(k);qa.append(b)});f.append(qa);
     f.append(el('h3','','What is switched on'));
     list(OV.status.map(([n,txt,on,tab])=>{const r=el('div','row st'),d=el('div'),b=el('button','btn ghost','Configure');d.append(el('label','',n),el('small','',txt));b.onclick=()=>switchTab(tab);r.append(el('span','dot'+(on?' on':'')),d,b);return r}),'');
   }else if(k==='board'){
@@ -1093,13 +1041,20 @@ function renderSpecial(k){
     list(L.map((u,i)=>{const r=el('div','row'),d=el('div'),m=el('div','meter');d.append(el('label','',`${i+1}. ${u.name}`),el('small','',`Level ${u.level}, ${u.xp} XP, ${u.messages} messages`));m.append(el('i'));m.firstChild.style.setProperty('--w',(u.xp/top*100)+'%');m.style.setProperty('--w','0');r.append(d,m);return r}),'Nobody has earned XP yet. Turn on Leveling and start chatting.');
   }else if(k==='cases'){renderCases();}else if(k==='otickets'){
     list((OV.tickets||[]).map(t=>{const r=el('div','row'),d=el('div');d.append(el('label','',`#${t.number} ${t.subject}`),el('small','',`Opened by ${t.opener} on ${when(t.created)}. ${t.claimed?'Claimed by '+t.claimed:'Not claimed yet'}`));r.append(d);return r}),'No open tickets.');
-  }else if(k==='panels'){renderPanels();}else if(k==='messages'){renderMessages();}else if(k==='giveaways'){renderGiveaways();}else if(k==='rroles'){renderRR();}else if(k==='autoreact'){renderAR();}else if(k==='inviters'){renderInviters();}else if(k==='joinmsg'){msgStudio('join')}else if(k==='leavemsg'){msgStudio('leave')}else if(k==='announce'){msgStudio('announce')}
+  }else if(k==='panels'){renderPanels();}else if(k==='messages'){renderMessages();}else if(k==='giveaways'){renderGiveaways();}else if(k==='rroles'){renderRR();}else if(k==='autoreact'){renderAR();}else if(k==='inviters'){renderInviters();}else if(k==='announce'){
+    const box=el('div','sec'),mk=(l,h,c)=>{const r=el('div','row col'),d=el('div');d.append(el('label','',l),el('small','',h));r.append(d,c);box.append(r);return c};
+    const ch=el('select');META.channels.forEach(o=>ch.add(new Option('#'+o.name,o.id)));mk('Channel','Where Spidey posts it',ch);
+    const ti=el('input');ti.type='text';ti.maxLength=200;ti.placeholder='Announcement';mk('Title','',ti);
+    const ms=el('textarea');ms.maxLength=3500;mk('Message','Posted as a Spidey-styled embed',ms);
+    const go=el('button','btn pri','Send message');go.style.margin='14px 0';box.append(go);f.append(box);const out=el('div','toast');out.style.marginTop='12px';f.append(out);
+    go.onclick=async()=>{try{await api(`/api/guilds/${G.id}/announce`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel:ch.value,title:ti.value,message:ms.value})});out.className='toast';out.textContent='Sent.';ms.value=''}catch(e){out.className='toast bad';out.textContent=e.message}};
+  }
 }
 function showGreet(){const g=$('greet');if(TAB!=='overview'){g.classList.add('hide');return}
   g.classList.remove('hide');g.innerHTML='';const t=el('h1');t.append('Welcome, ',el('span','nm',window.ME||'there'),' ',el('span','wave','\ud83d\udc4b'));
   g.append(t,el('p','',`Here is how ${G.name} is doing today.`))}
 function drawer(o){$('nav').classList.toggle('open',o);$('scrim').classList.toggle('show',o)}
-function switchTab(k){if(k==='welcome')k='joinmsg';if(k==='leave')k='leavemsg';if(cur().dirty()&&!confirm('Discard unsaved changes?'))return;if(ORIG[TAB])VAL[TAB]=clone(ORIG[TAB]);CTL=null;PREV=null;drawer(false);TAB=k;render();touch();$('main').scrollTo({top:0})}
+function switchTab(k){if(cur().dirty()&&!confirm('Discard unsaved changes?'))return;if(ORIG[TAB])VAL[TAB]=clone(ORIG[TAB]);CTL=null;PREV=null;drawer(false);TAB=k;render();touch();$('main').scrollTo({top:0})}
 function field(sec,f){
   const row=document.createElement('div');row.className='row'+(f.type==='area'||f.type==='lines'||f.type.startsWith('multi')?' col':'');
   row.innerHTML='<div><label></label><small></small></div>';row.querySelector('label').textContent=f.label;row.querySelector('small').textContent=f.hint||'';
@@ -1226,7 +1181,7 @@ function hideBoot(){$('boot').classList.add('gone')}
 $('keep').onchange=()=>{$('dclogin').href='/auth/login?remember='+($('keep').checked?1:0)};
 $('dclogin').onclick=()=>showBoot('Taking you to Discord');
 function moveGlide(){const nv=$('nav');let g=nv.querySelector('.glide');if(!g){g=el('div','glide');nv.prepend(g)}const b=nv.querySelector('button.on');if(!b){g.style.opacity=0;return}g.style.opacity=1;g.style.height=b.offsetHeight+'px';g.style.transform=`translateY(${b.offsetTop}px)`}
-const KW={autoreact:'react auto reply respond emoji trigger keyword word sentence message contains custom server emoji',rroles:'reaction roles button roles self roles dropdown emoji react get role',giveaways:'giveaway prize winner raffle draw reroll',invites:'invite tracker who invited join code',inviters:'invites leaderboard top inviters',leave:'goodbye leave left farewell',joinroles:'auto role join verify account age new members',automod:'spam links invites caps bad words filter punishment',welcome:'greet join leave goodbye autorole embed',leveling:'xp rank level rewards voice',moderation:'log cases ban kick mute',utility:'suggest suggestions',tickets:'ticket category support roles',panels:'ticket panel button form question',otickets:'tickets claimed open',board:'leaderboard top xp',cases:'cases warn ban mute kick history search',announce:'announcement broadcast',messages:'template embed button custom message send',joinmsg:'welcome join greet new member embed dm message',leavemsg:'goodbye leave left farewell message embed'};
+const KW={autoreact:'react auto reply respond emoji trigger keyword word sentence message contains custom server emoji',rroles:'reaction roles button roles self roles dropdown emoji react get role',giveaways:'giveaway prize winner raffle draw reroll',invites:'invite tracker who invited join code',inviters:'invites leaderboard top inviters',leave:'goodbye leave left farewell',joinroles:'auto role join verify account age new members',automod:'spam links invites caps bad words filter punishment',welcome:'greet join leave goodbye autorole embed',leveling:'xp rank level rewards voice',moderation:'log cases ban kick mute',utility:'suggest suggestions',tickets:'ticket category support roles',panels:'ticket panel button form question',otickets:'tickets claimed open',board:'leaderboard top xp',cases:'cases warn ban mute kick history search',announce:'announcement broadcast',messages:'template embed button custom message send'};
 function fsearch(){const q=$('fsearch').value.trim().toLowerCase(),r=$('fsres');r.innerHTML='';if(!q){r.classList.remove('open');return}
   const hits=TABS.filter(([k,t])=>(t+' '+(KW[k]||'')+' '+(DESC[k]||'')).toLowerCase().includes(q)).slice(0,6);
   if(!hits.length){const d=el('div','empty','No feature found');d.style.padding='14px';r.append(d)}
@@ -1275,13 +1230,13 @@ async function renderMessages(){
     ed.onclick=()=>tplEditor(p);dl.onclick=async()=>{if(!confirm('Delete this template? Messages already sent stay in Discord.'))return;try{await api(`/api/guilds/${G.id}/templates/${p.id}`,{method:'DELETE'});renderMessages()}catch(e){alert(e.message)}};
     a.append(ed,dl);c.append(a);grid.append(c)});f.append(grid);
 }
-function embCard(D,e,i,redraw,ts){
+function embCard(D,e,i,redraw){
   const c=el('div','bcard'),hd=el('div','bhead');hd.append(el('b','',`Embed ${i+1}`));
-  if(D.embeds.length>1||ts){const rm=el('button','btn ghost sm','Remove');rm.onclick=()=>{D.embeds.splice(i,1);redraw();touch()};hd.append(rm)}c.append(hd);
+  if(D.embeds.length>1){const rm=el('button','btn ghost sm','Remove');rm.onclick=()=>{D.embeds.splice(i,1);redraw();touch()};hd.append(rm)}c.append(hd);
   const b=el('div','sec'),col=el('input');col.type='color';col.value=e.color;
   fR(b,'Title','',fT(e,'title',256));fR(b,'Description','',fA(e,'description'),1);fR(b,'Color','',bindv(e,'color',col));
-  fR(b,'Author','Small text above the title',fT(e,'author',256));fR(b,'Footer','',fT(e,'footer',2048));if(ts)fR(b,'Show time','Adds the current time next to the footer',fW(e,'timestamp'));
-  fR(b,'Thumbnail link',ts?'https:// image, or {user.avatar} / {server.icon}. Shown top right':'https:// image, shown top right',fT(e,'thumbnail',500));fR(b,'Big image link',ts?'https:// image, or {user.avatar} / {server.icon}. Shown at the bottom':'https:// image, shown at the bottom',fT(e,'image',500));
+  fR(b,'Author','Small text above the title',fT(e,'author',256));fR(b,'Footer','',fT(e,'footer',2048));
+  fR(b,'Thumbnail link','https:// image, shown top right',fT(e,'thumbnail',500));fR(b,'Big image link','https:// image, shown at the bottom',fT(e,'image',500));
   const fw=el('div'),drawF=()=>{fw.innerHTML='';
     e.fields.forEach((x,k)=>{const q=el('div','qcard'),t=el('div','two'),n=fT(x,'name',256),v=fT(x,'value',1024),tr=el('div','qrow'),il=el('label','','Side by side'),rm=el('button','btn ghost sm','Remove');
       n.placeholder='Field name';v.placeholder='Field value';t.append(n,v);il.prepend(fW(x,'inline'));rm.onclick=()=>{e.fields.splice(k,1);drawF();touch()};tr.append(il,rm);q.append(t,tr);fw.append(q)});
@@ -1524,83 +1479,6 @@ let tx=0,ty=0;addEventListener('touchstart',e=>{tx=e.touches[0].clientX;ty=e.tou
 addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-tx,dy=e.changedTouches[0].clientY-ty;if(dx<-60&&Math.abs(dy)<Math.abs(dx)*.6)drawer(false)},{passive:true});
 const setHH=()=>{const hd=document.querySelector('#app>header');if(hd)document.documentElement.style.setProperty('--hh',hd.offsetHeight+'px')};
 addEventListener('resize',setHH);new ResizeObserver(setHH).observe(document.querySelector('#app>header'));
-/* ===== Join message / Leave message / Announce: one shared editor with a live preview ===== */
-const MSG={
- join:{ph:[['{user}','Mentions the new member'],['{user.name}','Their username'],['{name}','Their display name'],['{server}','Server name'],['{count}','Member count'],['{user.avatar}','Their avatar (use in a thumbnail or image)'],['{server.icon}','Server icon (use in a thumbnail or image)'],['{line}','A random Spidey line']]},
- leave:{ph:[['{user.name}','Their username'],['{name}','Their display name'],['{server}','Server name'],['{count}','Member count'],['{user.avatar}','Their avatar (use in a thumbnail or image)'],['{server.icon}','Server icon (use in a thumbnail or image)']]},
- announce:{ph:[['{server}','Server name'],['{count}','Member count'],['{server.icon}','Server icon (use in a thumbnail or image)']]}
-};
-const mdEsc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-const mdFmt=s=>mdEsc(s).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/(^|[^*])\*([^*\s][^*]*?)\*(?!\*)/g,'$1<i>$2</i>').replace(/`([^`\n]+)`/g,'<code>$1</code>').replace(/~~(.+?)~~/g,'<s>$1</s>').replace(/@[\w.]+/g,m=>'<span class="mn">'+m+'</span>');
-function msgSample(){
-  const me=window.ME||'Peter',av=$('uav').src,ic=G.icon?`https://cdn.discordapp.com/icons/${G.id}/${G.icon}.png?size=128`:av;
-  return [['{user.name}',me.toLowerCase().replace(/\s+/g,'')],['{user.id}','123456789012345678'],['{user.avatar}',av],['{server.icon}',ic],['{user}','@'+me],['{name}',me],['{server}',G.name],['{count}',String(OV.stats.members)],['{line}','A new friend got caught in the web! \ud83d\udd78\ufe0f']];
-}
-function msgPreview(pv,m,sample){
-  const sub=s=>sample.reduce((a,[k,v])=>a.split(k).join(v),s||''),rich=(c,x)=>{const d=el('div',c);d.innerHTML=mdFmt(sub(x));return d};
-  pv.innerHTML='';const hd=el('div','dhead'),im=el('img');im.src='/spidey-pfp.jpg?v=2';im.alt='';hd.append(im,el('b','','Spidey'),el('span','tag','BOT'));pv.append(hd);
-  if(m.content)pv.append(rich('dtext',m.content));
-  m.embeds.forEach(e=>{
-    const bx=el('div','emb'),bd=el('div','embody'),img=sub(e.image),th=sub(e.thumbnail),foot=[];let any=false;bx.style.borderLeftColor=e.color;
-    if(e.author){bd.append(el('div','eau',sub(e.author)));any=true}
-    if(e.title){bd.append(rich('eti',e.title));any=true}
-    if(e.description){bd.append(rich('ede',e.description));any=true}
-    if(e.fields.length){const g=el('div','efs');e.fields.forEach(x=>{const c=el('div','ef'+(x.inline?' in':'')),b=el('b','',sub(x.name)||'Name');c.append(b,rich('',x.value||'Value'));g.append(c)});bd.append(g);any=true}
-    if(img.startsWith('https://')){const i=el('img','eim');i.src=img;bd.append(i)}
-    if(e.footer)foot.push(sub(e.footer));if(e.timestamp)foot.push('Today at '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
-    if(foot.length)bd.append(el('div','eft',foot.join(' \u2022 ')));bx.append(bd);
-    if(th.startsWith('https://')){const t=el('img','eth');t.src=th;bx.append(t)}
-    if(any||img.startsWith('https://')||th.startsWith('https://'))pv.append(bx)});
-  if(m.buttons.length){const r=el('div','dbtns');m.buttons.forEach(x=>r.append(el('span','dbtn secondary',`${x.emoji||''} ${x.label||'Button'} \u2197`.trim())));pv.append(r)}
-}
-async function msgStudio(kind){
-  CTL=null;PREV=null;touch();const mytab=TAB,f=$('fields'),M=MSG[kind];f.innerHTML='';skel(f);let S;
-  if(kind==='announce')S={enabled:true,channel:'',dm:false,custom:true,notes:[],message:{content:'',embeds:[{...newEmbed(),timestamp:false,title:'\ud83d\udce3 Announcement',description:'Write your announcement here.'}],buttons:[]}};
-  else try{S=await api(`/api/guilds/${G.id}/msgs/${kind}`)}catch(e){if(TAB===mytab){f.innerHTML='';f.append(el('div','empty',e.message))}return}
-  if(TAB!==mytab)return;f.innerHTML='';
-  const msg=S.message;msg.embeds.forEach(e=>{e.timestamp=!!e.timestamp});
-  const grid=el('div','tgrid'),L=el('div'),R=el('div','prev'),pv=el('div','dmsg');R.append(el('h3','','Preview'),pv);grid.append(L,R);f.append(grid);
-  (S.notes||[]).forEach(n=>L.append(el('div','note warn',n)));
-  const classic=el('div','note','This is the classic message this server uses now. Change anything and press Save to switch to this editor. Nothing is lost.');
-  if(kind!=='announce'&&!S.custom)L.append(classic);
-  const top=el('div','sec');
-  if(kind!=='announce')fR(top,kind==='join'?'Send welcome messages':'Send goodbye messages','Switch it off to stop this message',fW(S,'enabled'));
-  fR(top,'Channel',kind==='announce'?'Where the announcement is posted':kind==='join'?'Where the welcome message is posted':'Where the goodbye message is posted',fS(S,'channel',optsOf(META.channels,'Choose a channel','#')));
-  if(kind==='join')fR(top,'Also send in DMs','The new member gets the same message privately. With no channel chosen it is DMs only',fW(S,'dm'));
-  L.append(top,el('h3','','Message'));let b=el('div','sec');const ta=fA(msg,'content');ta.maxLength=2000;
-  fR(b,'Message text','Shown above the embeds. Supports **bold**, *italic*, `code` and @mentions',ta,1);L.append(b);
-  let last=ta;L.addEventListener('focusin',e=>{if(e.target.matches('input[type=text],textarea'))last=e.target});
-  const ins=t=>{const x=last;if(!x||!x.isConnected)return;const a=x.selectionStart==null?x.value.length:x.selectionStart,z=x.selectionEnd==null?a:x.selectionEnd;
-    x.value=x.value.slice(0,a)+t+x.value.slice(z);x.setSelectionRange(a+t.length,a+t.length);x.focus();x.dispatchEvent(new Event('input',{bubbles:true}))};
-  const phs=el('div','phs');M.ph.forEach(([k,d])=>{const x=el('button','',k);x.type='button';x.title=d;x.onclick=()=>ins(k);phs.append(x)});
-  L.append(el('h3','','Placeholders'),el('p','hint','Click one to add it where you were typing. Hover for what it does.'),phs);
-  L.append(el('h3','','Embeds (up to 3)'));const ew=el('div');L.append(ew);
-  const drawE=()=>{ew.innerHTML='';msg.embeds.forEach((e,i)=>ew.append(embCard(msg,e,i,drawE,true)));
-    if(msg.embeds.length<3){const ad=el('button','btn ghost','Add embed');ad.style.marginTop='14px';ad.onclick=()=>{msg.embeds.push({...newEmbed(),timestamp:false});drawE();touch()};ew.append(ad)}};drawE();
-  L.append(el('h3','','Link buttons (up to 5)'));const bw=el('div');L.append(bw);
-  const drawB=()=>{bw.innerHTML='';
-    msg.buttons.forEach((x,i)=>{const r=el('div','qcard'),t2=el('div','two'),la=fT(x,'label',80),em=fT(x,'emoji',32),ur=fT(x,'url',500),rm=el('button','btn ghost sm','Remove');
-      la.placeholder='Button text';em.placeholder='Emoji (optional)';ur.placeholder='https://...';t2.append(la,em);rm.onclick=()=>{msg.buttons.splice(i,1);drawB();touch()};r.append(t2,ur,rm);bw.append(r)});
-    if(msg.buttons.length<5){const ad=el('button','btn ghost','Add button');ad.style.marginTop='14px';ad.onclick=()=>{msg.buttons.push({label:'',url:'',emoji:''});drawB();touch()};bw.append(ad)}};drawB();
-  const out=el('div','toast'),acts=el('div','acts');acts.style.margin='18px 0';L.append(acts);
-  if(kind==='announce'){
-    const go=el('button','btn pri','Send announcement');acts.append(go,out);
-    go.onclick=async()=>{out.className='toast';out.textContent='Sending...';
-      try{if(!S.channel)throw new Error('Choose a channel first');await api(`/api/guilds/${G.id}/send`,PJ('POST',{channel:S.channel,message:msg}));out.textContent='Sent!'}
-      catch(e){out.className='toast bad';out.textContent=e.message}};
-  }else{
-    const pick=()=>({enabled:S.enabled,channel:S.channel,dm:S.dm,message:msg});let snap=JSON.stringify(pick());
-    const tb=el('button','btn ghost','Send test'),rv=el('button','btn ghost','Use classic style');rv.classList.toggle('hide',!S.custom);acts.append(tb,rv,out);
-    L.append(el('p','hint','Send test posts the message exactly as it is in the editor (even if not saved yet), using your account as the member.'));
-    CTL={dirty:()=>JSON.stringify(pick())!==snap,reset:()=>msgStudio(kind),
-      save:async()=>{await api(`/api/guilds/${G.id}/msgs/${kind}`,PJ('PUT',pick()));snap=JSON.stringify(pick());S.custom=true;rv.classList.remove('hide');classic.remove()}};
-    tb.onclick=async()=>{out.className='toast';out.textContent='Sending...';
-      try{const r=await api(`/api/guilds/${G.id}/msgs/${kind}/test`,PJ('POST',pick()));out.textContent=r.where}catch(e){out.className='toast bad';out.textContent=e.message}};
-    rv.onclick=async()=>{if(!confirm('Go back to the classic Spidey message? The design you made here is removed and the old settings are used again.'))return;
-      try{await api(`/api/guilds/${G.id}/msgs/${kind}`,{method:'DELETE'});msgStudio(kind)}catch(e){out.className='toast bad';out.textContent=e.message}};
-  }
-  PREV=()=>msgPreview(pv,msg,msgSample());touch();
-}
 showBoot('Waking Spidey up');init0().catch(()=>{}).finally(()=>setTimeout(hideBoot,300));
 </script></body></html>
 '''
