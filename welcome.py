@@ -9,7 +9,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from theme import web_embed, RED, BLUE, DARK
+from theme import web_embed, RED, BLUE, DARK, FOOTER
 from moderation import fail
 
 DATA_FILE = "welcome.json"
@@ -36,6 +36,10 @@ DEFAULTS = {
     "thumbnail_file": None,      # an uploaded picture (kept on disk)
     "image_url": None,           # big picture at the bottom of the embed
     "image_file": None,
+    # ---- NEW: messages made in the web dashboard editor. None = the classic message above is used,
+    # so nothing that is already set up changes until someone saves a message in the dashboard.
+    "join_msg": None,
+    "leave_msg": None,
 }
 
 IMAGE_DIR = "welcome_images"
@@ -50,14 +54,27 @@ LINES = [
 ]
 
 
+def fill(template: str, ctx: dict) -> str:
+    """Replace every {placeholder} that ctx knows about. {line} and \\n work as before."""
+    out = template or ""
+    for key, value in ctx.items():
+        out = out.replace("{" + key + "}", str(value))
+    return out.replace("{line}", random.choice(LINES)).replace("\\n", "\n")
+
+
+def guild_ctx(guild: discord.Guild) -> dict:
+    return {"server": guild.name, "count": guild.member_count,
+            "server.icon": guild.icon.url if guild.icon else ""}
+
+
+def member_ctx(member: discord.Member) -> dict:
+    return {"user": member.mention, "name": member.display_name, "user.name": member.name,
+            "user.id": member.id, "user.avatar": member.display_avatar.url, **guild_ctx(member.guild)}
+
+
 def render(template: str, member: discord.Member) -> str:
-    """Fill in {user} {name} {server} {count} {line}."""
-    return (template.replace("{user}", member.mention)
-                    .replace("{name}", member.display_name)
-                    .replace("{server}", member.guild.name)
-                    .replace("{count}", str(member.guild.member_count))
-                    .replace("{line}", random.choice(LINES))
-                    .replace("\\n", "\n"))
+    """Fill in {user} {name} {server} {count} {line} (and {user.name} {user.id} {user.avatar} {server.icon})."""
+    return fill(template, member_ctx(member))
 
 
 def parse_hex(text: str) -> Optional[int]:
@@ -112,6 +129,130 @@ def build_welcome(member: discord.Member, c: dict):
     return content, embed, files
 
 
+# ------------------------------------------------------------------ dashboard message editor (join / leave / announce)
+LINK_TOKENS = ("{user.avatar}", "{server.icon}")      # allowed instead of a real link in image / thumbnail
+MAX_EMBEDS, MAX_BUTTONS, MAX_FIELDS = 3, 5, 10
+
+
+def _t(value, limit: int) -> str:
+    return str(value or "").strip()[:limit]
+
+
+def _link(value, label: str, allow_tokens: bool = True) -> str:
+    v = _t(value, 500)
+    if v and not (v.startswith("https://") and " " not in v) and not (allow_tokens and v in LINK_TOKENS):
+        raise ValueError(f"{label} must be an https:// link" + (" (or {user.avatar} / {server.icon})" if allow_tokens else ""))
+    return v
+
+
+def clean_msg(d: dict) -> dict:
+    """Checks a message that came from the dashboard and returns the clean version to store. Raises ValueError."""
+    out = {"content": _t(d.get("content"), 2000), "embeds": [], "buttons": []}
+    for e in (d.get("embeds") or [])[:MAX_EMBEDS]:
+        color = _t(e.get("color"), 7)
+        out["embeds"].append({
+            "title": _t(e.get("title"), 256), "description": _t(e.get("description"), 4000),
+            "color": color if parse_hex(color) is not None and color.startswith("#") else "#e0222d",
+            "author": _t(e.get("author"), 256), "footer": _t(e.get("footer"), 2048),
+            "timestamp": bool(e.get("timestamp")),
+            "image": _link(e.get("image"), "The big image"), "thumbnail": _link(e.get("thumbnail"), "The thumbnail"),
+            "fields": [{"name": _t(f.get("name"), 256), "value": _t(f.get("value"), 1024), "inline": bool(f.get("inline"))}
+                       for f in (e.get("fields") or [])[:MAX_FIELDS] if _t(f.get("name"), 256) and _t(f.get("value"), 1024)]})
+    for b in (d.get("buttons") or [])[:MAX_BUTTONS]:
+        label, url = _t(b.get("label"), 80), _link(b.get("url"), "A button link", allow_tokens=False)
+        if label and url:
+            out["buttons"].append({"label": label, "url": url, "emoji": _t(b.get("emoji"), 32)})
+    has_embed = any(x["title"] or x["description"] or x["author"] or x["image"] or x["thumbnail"] or x["fields"]
+                    for x in out["embeds"])
+    if not out["content"] and not has_embed:
+        raise ValueError("Add some text or an embed first.")
+    if sum(len(x["title"]) + len(x["description"]) + len(x["author"]) + len(x["footer"]) +
+           sum(len(f["name"]) + len(f["value"]) for f in x["fields"]) for x in out["embeds"]) > 6000:
+        raise ValueError("The embeds are too long together (Discord allows 6000 characters in total).")
+    return out
+
+
+def _https(url: str) -> Optional[str]:
+    url = (url or "").strip()
+    return url if url.startswith("https://") and " " not in url and len(url) <= 2048 else None
+
+
+def build_custom(msg: dict, ctx: dict):
+    """(text or None, [embeds], link-button view or None) for a dashboard message, or None if it would be empty."""
+    content = fill(msg.get("content"), ctx)[:2000].strip() or None
+    embeds = []
+    for e in (msg.get("embeds") or [])[:MAX_EMBEDS]:
+        color = parse_hex(e.get("color") or "")
+        em = discord.Embed(title=fill(e.get("title"), ctx)[:256] or None,
+                           description=fill(e.get("description"), ctx)[:4096] or None,
+                           color=color if color is not None else RED)
+        has = bool(em.title or em.description)
+        if e.get("author"):
+            em.set_author(name=fill(e["author"], ctx)[:256] or "\u200b"); has = True
+        if e.get("footer"):
+            em.set_footer(text=fill(e["footer"], ctx)[:2048] or "\u200b")
+        for f in (e.get("fields") or [])[:MAX_FIELDS]:
+            name, value = fill(f.get("name"), ctx)[:256], fill(f.get("value"), ctx)[:1024]
+            if name and value:
+                em.add_field(name=name, value=value, inline=bool(f.get("inline"))); has = True
+        image, thumb = _https(fill(e.get("image"), ctx)), _https(fill(e.get("thumbnail"), ctx))
+        if image:
+            em.set_image(url=image); has = True
+        if thumb:
+            em.set_thumbnail(url=thumb); has = True
+        if e.get("timestamp"):
+            em.timestamp = discord.utils.utcnow()
+        if has:
+            embeds.append(em)
+    view = None
+    buttons = [b for b in (msg.get("buttons") or [])[:MAX_BUTTONS] if b.get("label") and _https(b.get("url"))]
+    if buttons:
+        view = discord.ui.View(timeout=None)
+        for b in buttons:
+            view.add_item(discord.ui.Button(style=discord.ButtonStyle.link, label=b["label"][:80], url=b["url"],
+                                            emoji=b.get("emoji") or None))
+    if not content and not embeds:
+        return None
+    return content, embeds, view
+
+
+def legacy_msg(c: dict, kind: str):
+    """The classic welcome/goodbye message written in the dashboard editor's format (so the editor opens
+    with exactly what the server has now). Returns (message, notes)."""
+    notes = []
+    if kind == "join":
+        footer = {None: FOOTER, FOOTER_OFF: ""}.get(c["welcome_footer"], c["welcome_footer"])
+        mode = c["thumbnail_mode"]
+        thumb = {"avatar": "{user.avatar}", "server": "{server.icon}"}.get(mode, "")
+        if mode == "custom":
+            if image_path(c, "thumbnail"):
+                notes.append("Your uploaded thumbnail picture can't be shown in this editor. Paste an image link to keep it. "
+                             "It keeps working until you save here.")
+            else:
+                thumb = c["thumbnail_url"] or ""
+        image = c["image_url"] or ""
+        if image_path(c, "image"):
+            image = ""
+            notes.append("Your uploaded big picture can't be shown in this editor. Paste an image link to keep it. "
+                         "It keeps working until you save here.")
+        embed = {"title": f"\U0001F577\ufe0f {c['welcome_title']} \U0001F578\ufe0f", "description": c["welcome_message"],
+                 "color": "#%06x" % c["welcome_color"], "author": "", "footer": footer, "timestamp": False,
+                 "image": image, "thumbnail": thumb, "fields": []}
+        return {"content": c["welcome_text"], "embeds": [embed], "buttons": []}, notes
+    embed = {"title": "\U0001F577\ufe0f Goodbye! \U0001F578\ufe0f", "description": c["goodbye_message"], "color": "#%06x" % DARK,
+             "author": "", "footer": FOOTER, "timestamp": False, "image": "", "thumbnail": "", "fields": []}
+    return {"content": "", "embeds": [embed], "buttons": []}, notes
+
+
+def build_join(member: discord.Member, c: dict):
+    """(text, [embeds], [files], view) of the welcome message: the dashboard one if it exists, else the classic one."""
+    if c.get("join_msg"):
+        built = build_custom(c["join_msg"], member_ctx(member))
+        return (built[0], built[1], [], built[2]) if built else (None, [], [], None)
+    content, embed, files = build_welcome(member, c)
+    return content, [embed], files, None
+
+
 # ------------------------------------------------------------------ verify button (survives restarts)
 class VerifyView(discord.ui.View):
     def __init__(self):
@@ -154,6 +295,10 @@ def summary_embed(c: dict, notes: Optional[list] = None) -> discord.Embed:
     lines = [f"⚠️ {n}" for n in (notes or [])]
     if lines:
         lines.append("")
+    owned = [n for n, k in (("welcome", "join_msg"), ("goodbye", "leave_msg")) if c.get(k)]
+    if owned:
+        lines += [f"🖥️ **The {' and '.join(owned)} message is made in the web dashboard.** The Messages, Look and Pictures "
+                  "settings below don't apply to it. In the dashboard press *Use classic style* to go back.", ""]
     lines += [
         f"📣 **Welcome channel:** {ch(c['welcome_channel'])}   🚪 **Goodbye channel:** {ch(c['goodbye_channel'])}",
         "",
@@ -336,10 +481,11 @@ class PanelView(OwnedView):
 
     @discord.ui.button(label="Preview", emoji="👁️", style=discord.ButtonStyle.success, row=0)
     async def preview(self, interaction: discord.Interaction, button: discord.ui.Button):
-        content, embed, files = build_welcome(interaction.user, self.c)
+        content, embeds, files, view = build_join(interaction.user, self.c)
         header = "**Preview** (this is how new members see it):"
+        extra = {"view": view} if view else {}
         await interaction.response.send_message(content=f"{header}\n{content}" if content else header,
-                                                embed=embed, files=files, ephemeral=True)
+                                                embeds=embeds, files=files, ephemeral=True, **extra)
 
     @discord.ui.button(label="Channels", emoji="📣", style=discord.ButtonStyle.secondary, row=1)
     async def channels(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -665,20 +811,22 @@ class Welcome(commands.Cog):
         # welcome message
         channel = member.guild.get_channel(c["welcome_channel"]) if c.get("welcome_enabled", True) and c["welcome_channel"] else None
         if channel:
-            content, embed, files = build_welcome(member, c)
-            try:      # only the new member can be pinged by the text above the embed
-                await channel.send(content=content, embed=embed, files=files,
-                                   allowed_mentions=discord.AllowedMentions(users=[member], roles=False, everyone=False))
-            except discord.HTTPException:
-                pass
+            content, embeds, files, view = build_join(member, c)
+            if content or embeds:
+                try:      # only the new member can be pinged by the text above the embed
+                    await channel.send(content=content, embeds=embeds, files=files, **({"view": view} if view else {}),
+                                       allowed_mentions=discord.AllowedMentions(users=[member], roles=False, everyone=False))
+                except discord.HTTPException:
+                    pass
 
         # same welcome message, sent privately to the new member too
         if c.get("welcome_enabled", True) and c.get("welcome_dm", True):
             try:
-                content, embed, files = build_welcome(member, c)   # fresh files (a File can only be sent once)
-                if not content:
-                    content = f"👋 Welcome to **{member.guild.name}**!"
-                await member.send(content=content, embed=embed, files=files)
+                content, embeds, files, view = build_join(member, c)   # fresh files (a File can only be sent once)
+                if content or embeds:
+                    if not content:
+                        content = f"👋 Welcome to **{member.guild.name}**!"
+                    await member.send(content=content, embeds=embeds, files=files, **({"view": view} if view else {}))
             except Exception:
                 pass    # DMs closed / any error: never break the join flow
 
@@ -690,9 +838,80 @@ class Welcome(commands.Cog):
         channel = member.guild.get_channel(c["goodbye_channel"]) if c.get("goodbye_enabled", True) and c["goodbye_channel"] else None
         if channel:
             try:
-                await channel.send(embed=web_embed("Goodbye!", render(c["goodbye_message"], member), DARK))
+                if c.get("leave_msg"):      # made in the dashboard editor (nobody is pinged, the member already left)
+                    built = build_custom(c["leave_msg"], member_ctx(member))
+                    if built:
+                        content, embeds, view = built
+                        await channel.send(content=content, embeds=embeds, **({"view": view} if view else {}),
+                                           allowed_mentions=discord.AllowedMentions.none())
+                else:
+                    await channel.send(embed=web_embed("Goodbye!", render(c["goodbye_message"], member), DARK))
             except discord.HTTPException:
                 pass
+
+    # ================================================================ DASHBOARD EDITOR
+    KEYS = {"join": ("join_msg", "welcome_enabled", "welcome_channel"), "leave": ("leave_msg", "goodbye_enabled", "goodbye_channel")}
+
+    def editor_state(self, guild: discord.Guild, kind: str) -> dict:
+        c = self.cfg(guild.id)
+        key, enabled_key, channel_key = self.KEYS[kind]
+        msg, notes = (c[key], []) if c.get(key) else legacy_msg(c, kind)
+        channel = c[channel_key]
+        return {"enabled": bool(c.get(enabled_key, True)), "channel": str(channel) if channel and guild.get_channel(channel) else "",
+                "dm": bool(c.get("welcome_dm", True)) if kind == "join" else False,
+                "custom": bool(c.get(key)), "message": msg, "notes": notes}
+
+    def _target(self, guild: discord.Guild, d: dict):
+        raw = d.get("channel")
+        if not raw:
+            return None
+        channel = guild.get_channel(int(raw))
+        if not isinstance(channel, discord.TextChannel):
+            raise ValueError("Pick a text channel.")
+        return channel
+
+    def save_editor(self, guild: discord.Guild, kind: str, d: dict):
+        key, enabled_key, channel_key = self.KEYS[kind]
+        msg = clean_msg(d.get("message") or {})
+        channel, enabled = self._target(guild, d), bool(d.get("enabled"))
+        dm = bool(d.get("dm")) if kind == "join" else False
+        if enabled and channel is None and not dm:
+            raise ValueError("Pick a channel first, or turn the message off.")
+        if enabled and channel is not None and not channel.permissions_for(guild.me).send_messages:
+            raise ValueError(f"I can't send messages in #{channel.name} yet. Give me that permission there.")
+        c = self.cfg(guild.id)
+        c[key], c[enabled_key], c[channel_key] = msg, enabled, channel.id if channel else None
+        if kind == "join":
+            c["welcome_dm"] = dm
+        self.save()
+
+    def revert_editor(self, guild: discord.Guild, kind: str):
+        self.cfg(guild.id)[self.KEYS[kind][0]] = None
+        self.save()
+
+    async def send_test(self, guild: discord.Guild, kind: str, user_id: int, d: dict) -> str:
+        """Sends the message exactly as in the editor (even if not saved yet), using the dashboard user as the member."""
+        msg, channel = clean_msg(d.get("message") or {}), self._target(guild, d)
+        member = guild.get_member(user_id) or guild.me
+        built = build_custom(msg, member_ctx(member))
+        if built is None:
+            raise ValueError("Add some text or an embed first.")
+        content, embeds, view = built
+        extra = {"view": view} if view else {}
+        try:
+            if channel is not None:
+                await channel.send(content=content, embeds=embeds, **extra,
+                                   allowed_mentions=discord.AllowedMentions(users=[member], roles=False, everyone=False))
+                return f"Test sent to #{channel.name}."
+            if kind == "join" and d.get("dm"):
+                user = self.bot.get_user(user_id) or await self.bot.fetch_user(user_id)
+                await user.send(content=content or f"👋 Welcome to **{guild.name}**!", embeds=embeds, **extra)
+                return "Test sent to your DMs."
+        except discord.Forbidden:
+            raise ValueError("I can't send there. Check my permissions in that channel, or open your DMs.")
+        except discord.HTTPException:
+            raise ValueError("Discord rejected the message. Check the emoji, links and my permissions.")
+        raise ValueError("Pick a channel first.")
 
     # ================================================================ HELPERS
     async def _save_upload(self, guild_id: int, kind: str, attachment: discord.Attachment) -> str:
