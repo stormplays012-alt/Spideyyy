@@ -701,13 +701,62 @@ def build(bot) -> web.Application:
         cog.data[str(g.id)] = new; cog.save()
         return J(ar_out(new))
 
+    # ---- join / leave message editor + announcements (same editor, same checks as the bot uses when it sends)
+    def wmc(request):
+        gid = request.match_info["id"]
+        if (e := deny(request, gid)): return e, None, None, None
+        cog, kind = bot.get_cog("Welcome"), request.match_info.get("kind")
+        if kind not in ("join", "leave"): return J({"error": "Unknown message"}, status=404), None, None, None
+        if not cog: return J({"error": "The Welcome module is not loaded"}, status=404), None, None, None
+        return None, bot.get_guild(int(gid)), cog, kind
+
+    async def msg_get(request):
+        e, g, cog, kind = wmc(request)
+        return e or J(cog.editor_state(g, kind))
+
+    async def msg_put(request):
+        e, g, cog, kind = wmc(request)
+        if e: return e
+        try: cog.save_editor(g, kind, await request.json())
+        except (ValueError, TypeError, AttributeError, KeyError) as ex: return J({"error": str(ex) or "Invalid message"}, status=400)
+        return J({"ok": True})
+
+    async def msg_revert(request):
+        e, g, cog, kind = wmc(request)
+        if e: return e
+        cog.revert_editor(g, kind); return J({"ok": True})
+
+    async def msg_test(request):
+        e, g, cog, kind = wmc(request)
+        if e: return e
+        try: where = await cog.send_test(g, kind, int(request["s"]["user"]["id"]), await request.json())
+        except (ValueError, TypeError, AttributeError, KeyError) as ex: return J({"error": str(ex) or "Invalid message"}, status=400)
+        return J({"ok": True, "where": where})
+
+    async def send_msg(request):
+        gid = request.match_info["id"]
+        if (e := deny(request, gid)): return e
+        from welcome import clean_msg, build_custom, guild_ctx
+        g, b = bot.get_guild(int(gid)), await request.json()
+        try: ch = g.get_channel(int(b.get("channel") or 0))
+        except (ValueError, TypeError): ch = None
+        if not isinstance(ch, discord.TextChannel): return J({"error": "Choose a text channel first."}, status=400)
+        try: built = build_custom(clean_msg(b.get("message") or {}), guild_ctx(g))
+        except (ValueError, TypeError, AttributeError) as ex: return J({"error": str(ex) or "Invalid message"}, status=400)
+        if built is None: return J({"error": "Add some text or an embed first."}, status=400)
+        content, embeds, view = built
+        try: await ch.send(content=content, embeds=embeds, **({"view": view} if view else {}))
+        except discord.Forbidden: return J({"error": "I can't post in that channel. Check my permissions there."}, status=400)
+        except discord.HTTPException: return J({"error": "Discord rejected the message. Check the emoji, links and my permissions."}, status=400)
+        return J({"ok": True})
+
     async def logo(request): return web.Response(body=base64.b64decode(LOGO_B64), content_type="image/jpeg", headers={"Cache-Control": "public, no-store"})
 
     async def index(request): return web.Response(text=INDEX_HTML, content_type="text/html")
     app = web.Application(middlewares=[session_mw])
     app.add_routes([web.get("/", index), web.get("/auth/login", login), web.get("/auth/callback", callback), web.get("/auth/logout", logout),
         web.get("/api/config", config), web.get("/api/me", me), web.get("/api/schema", schema), web.get("/api/guilds", guilds),
-        web.get("/api/guilds/{id}", guild_get), web.get("/api/guilds/{id}/overview", overview), web.get("/logo.jpg", logo), web.get("/spidey-pfp.jpg", logo), web.get("/api/guilds/{id}/rroles", rr_list), web.put("/api/guilds/{id}/rroles/{pid}", rr_put), web.delete("/api/guilds/{id}/rroles/{pid}", rr_delete), web.post("/api/guilds/{id}/rroles/{pid}/post", rr_post), web.get("/api/guilds/{id}/giveaways", gw_list), web.post("/api/guilds/{id}/giveaways", gw_start), web.post("/api/guilds/{id}/giveaways/{gid}/{act}", gw_act), web.delete("/api/guilds/{id}/giveaways/{gid}", gw_del), web.get("/api/guilds/{id}/inviters", inviters), web.get("/api/guilds/{id}/cases", cases_get), web.put("/api/guilds/{id}/cases/{cid}", case_put), web.delete("/api/guilds/{id}/cases/{cid}", case_delete), web.get("/api/guilds/{id}/templates", tpl_get), web.put("/api/guilds/{id}/templates/{tid}", tpl_put), web.delete("/api/guilds/{id}/templates/{tid}", tpl_delete), web.post("/api/guilds/{id}/templates/{tid}/send", tpl_send), web.get("/api/guilds/{id}/panels", panels_get), web.put("/api/guilds/{id}/panels/{pid}", panel_put), web.delete("/api/guilds/{id}/panels/{pid}", panel_delete), web.post("/api/guilds/{id}/panels/{pid}/post", panel_post), web.post("/api/guilds/{id}/announce", announce), web.get("/api/guilds/{id}/autoreact", ar_get), web.put("/api/guilds/{id}/autoreact", ar_put), web.put("/api/guilds/{id}/{sec}", section_put)])
+        web.get("/api/guilds/{id}", guild_get), web.get("/api/guilds/{id}/overview", overview), web.get("/logo.jpg", logo), web.get("/spidey-pfp.jpg", logo), web.get("/api/guilds/{id}/rroles", rr_list), web.put("/api/guilds/{id}/rroles/{pid}", rr_put), web.delete("/api/guilds/{id}/rroles/{pid}", rr_delete), web.post("/api/guilds/{id}/rroles/{pid}/post", rr_post), web.get("/api/guilds/{id}/giveaways", gw_list), web.post("/api/guilds/{id}/giveaways", gw_start), web.post("/api/guilds/{id}/giveaways/{gid}/{act}", gw_act), web.delete("/api/guilds/{id}/giveaways/{gid}", gw_del), web.get("/api/guilds/{id}/inviters", inviters), web.get("/api/guilds/{id}/cases", cases_get), web.put("/api/guilds/{id}/cases/{cid}", case_put), web.delete("/api/guilds/{id}/cases/{cid}", case_delete), web.get("/api/guilds/{id}/templates", tpl_get), web.put("/api/guilds/{id}/templates/{tid}", tpl_put), web.delete("/api/guilds/{id}/templates/{tid}", tpl_delete), web.post("/api/guilds/{id}/templates/{tid}/send", tpl_send), web.get("/api/guilds/{id}/panels", panels_get), web.put("/api/guilds/{id}/panels/{pid}", panel_put), web.delete("/api/guilds/{id}/panels/{pid}", panel_delete), web.post("/api/guilds/{id}/panels/{pid}/post", panel_post), web.post("/api/guilds/{id}/announce", announce), web.get("/api/guilds/{id}/autoreact", ar_get), web.put("/api/guilds/{id}/autoreact", ar_put), web.get("/api/guilds/{id}/msgs/{kind}", msg_get), web.put("/api/guilds/{id}/msgs/{kind}", msg_put), web.delete("/api/guilds/{id}/msgs/{kind}", msg_revert), web.post("/api/guilds/{id}/msgs/{kind}/test", msg_test), web.post("/api/guilds/{id}/send", send_msg), web.put("/api/guilds/{id}/{sec}", section_put)])
     from urllib.parse import urlparse
     path = (urlparse(REDIRECT or "").path or "").rstrip("/")
     if path and path not in ("/auth/callback", "") and not any(getattr(r, "resource", None) and r.resource.canonical == path for r in app.router.routes()):
@@ -951,6 +1000,69 @@ header{gap:12px}header #title{min-width:0;overflow:hidden;text-overflow:ellipsis
 .dmsg.mini{padding:10px;font-size:.82rem;pointer-events:none}.eth.fake{display:grid;place-items:center;background:#5865f2;color:#fff;font-weight:700;border-radius:50%;width:44px;height:44px;flex:none}
 .selmock{background:#1e1f22;border:1px solid #3f4147;border-radius:6px;padding:10px 12px;margin-top:8px;color:#b5bac1}
 .rx{display:inline-grid;place-items:center;min-width:34px;height:28px;padding:0 8px;border-radius:8px;background:#2b2d31;border:1px solid #3f4147}
+.mn{background:#5865f240;color:#c9cdfb;border-radius:3px;padding:0 2px}.dmsg code{background:#1e1f22;border-radius:4px;padding:1px 4px;font-size:.85em}
+.eau,.eft{display:flex;align-items:center}.eai,.efi{width:20px;height:20px;border-radius:50%;margin-right:8px;object-fit:cover;flex:none}.eti.lnk{color:#00a8fc}
+.k{max-width:1040px;margin:0 auto;width:100%;padding-bottom:24px}
+.kgrid{display:grid;grid-template-columns:minmax(0,1fr);gap:24px;align-items:start}.kside{display:none}.kmain{min-width:0}
+@media(min-width:1280px){.kgrid{grid-template-columns:minmax(0,1fr) 340px}.kside{display:block;position:sticky;top:8px}.keye{display:none!important}}
+.khead{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:0 0 18px}
+.ktitle{margin:0;font-size:clamp(1.3rem,4.4vw,1.9rem);letter-spacing:-.02em;display:flex;flex-wrap:wrap;gap:2px 10px;align-items:baseline;min-width:0}
+.kcrumb,.ksep{color:var(--mu);font-weight:600}
+.ksec{padding:2px 0 22px;border-bottom:1px solid var(--line);margin-bottom:22px}
+.kl{font-size:.78rem;letter-spacing:.09em;text-transform:uppercase;font-weight:700;margin-bottom:4px}.kreq{color:var(--ac)}
+.kd{margin:0 0 12px;color:var(--mu);font-size:.92rem}
+.k select,.k input[type=text],.k textarea{max-width:none;width:100%;min-height:46px}
+.k textarea{min-height:90px}
+.note{border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:10px 14px;margin:0 0 14px;font-size:.88rem;color:var(--mu)}.note.warn{border-color:#e0222d55;background:var(--acx);color:var(--tx)}
+.k .sw input{inset:-10px 0;width:100%;height:calc(100% + 20px)}
+.kchk{position:relative;display:flex;align-items:center;gap:12px;cursor:pointer;margin-top:12px;min-height:44px;user-select:none}
+.kchk input{position:absolute;opacity:0;width:0;height:0}.kchk .bx{width:24px;height:24px;border-radius:7px;border:2px solid #5b5d7a;display:grid;place-items:center;flex:none;transition:background .2s,border-color .2s}
+.kchk .bx svg{width:16px;height:16px;fill:none;stroke:#fff;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:24;stroke-dashoffset:24;transition:stroke-dashoffset .3s}
+.kchk input:checked+.bx{background:var(--ac);border-color:var(--ac)}.kchk input:checked+.bx svg{stroke-dashoffset:0}.kchk input:focus-visible+.bx{outline:2px solid #fff;outline-offset:2px}
+.krow{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.ktabs{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;flex:1;min-width:0}.ktabs::-webkit-scrollbar{display:none}
+.ktabs button{white-space:nowrap;background:none;border:1px solid var(--line);border-radius:10px;padding:0 16px;min-height:44px;cursor:pointer;color:var(--mu);font-weight:600}
+.ktabs button.on{color:var(--tx);border-color:var(--ac);background:var(--acx)}.ktools{display:flex;gap:8px;flex:none}
+.kic{display:inline-grid;place-items:center}.kic svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.kib{width:44px;height:44px;flex:none;display:grid;place-items:center;border-radius:12px;border:1px solid var(--line);background:var(--panel);cursor:pointer;color:var(--tx);padding:0;transition:border-color .15s,background .15s,color .15s}
+.kib:hover{border-color:var(--ac)}.kib.on{border-color:var(--ac);background:var(--acx);color:var(--ac)}.kib.danger:hover{color:var(--bad);border-color:var(--bad)}
+.ktoast{min-height:0;font-size:.9rem;color:#3ddc84;margin:-4px 0 10px}.ktoast:not(:empty){min-height:1.3em}.ktoast.bad{color:var(--bad)}
+.kmc{background:#313338;border:1px solid var(--line);border-radius:14px;padding:14px 14px 8px;color:#dbdee1}
+.kmh{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px}.kmh img{width:38px;height:38px;border-radius:50%}.kmh b{color:#fff}.kmh small{color:#949ba4}
+.k .kmt{background:#1e1f22;border-color:#3f4147;min-height:140px;color:#dbdee1;resize:vertical;line-height:1.5}
+.kcnt{text-align:right;font-size:.78rem;color:#949ba4;padding:6px 2px 2px}
+.ktog{display:flex;align-items:center;gap:12px;margin:18px 0 12px;cursor:pointer;font-weight:600;min-height:44px}
+.kemb{background:var(--panel);border:1px solid var(--line);border-left:5px solid var(--ec,#e0222d);border-radius:12px;padding:10px 14px 18px;margin-bottom:14px}
+.kebar{display:flex;align-items:center;justify-content:space-between;margin-bottom:2px}.kebar b{color:var(--mu);font-size:.85rem}
+.kegrid{display:grid;grid-template-columns:minmax(0,1fr) 132px;gap:0 20px}.kebody{min-width:0}
+@media(max-width:700px){.kegrid{grid-template-columns:minmax(0,1fr)}.kethumb{order:-1}}
+.kfl{font-size:.82rem;color:var(--mu);font-weight:600;margin:16px 0 8px}
+.kcolor{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.k input[type=color].kcsw{width:56px;height:44px;padding:3px;border-radius:10px;flex:none;max-width:none;min-height:44px}
+.kdots{display:flex;gap:10px;flex-wrap:wrap}.kdot{width:28px;height:28px;border-radius:50%;border:2px solid transparent;cursor:pointer;padding:0;outline:1px solid #ffffff22}.kdot.on{border-color:#fff}
+@media(pointer:coarse){.kdot{width:34px;height:34px}}
+.kir,.kfoot{display:flex;gap:8px;align-items:center}.kir input,.kfoot input{flex:1 1 0;min-width:0}.kfoot{flex-wrap:wrap}.kfoot input{flex-basis:140px}.k select.kts{width:auto;flex:0 0 auto}
+.kdesc textarea{min-height:110px}.kdesc .kcnt{color:var(--mu)}
+.kfld{border:1px dashed var(--line);border-radius:12px;padding:10px;display:grid;gap:8px;margin-bottom:10px}.kfh{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.kinl{display:flex;align-items:center;gap:10px;font-weight:400;font-size:.9rem}.kbr{display:grid;grid-template-columns:minmax(0,1fr) 120px;gap:8px}
+.kadd{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:0 16px;border:1px dashed var(--line);border-radius:12px;background:none;color:var(--tx);cursor:pointer;font-weight:600}.kadd:hover{border-color:var(--ac)}.kadd .kic svg{width:18px;height:18px}
+.kimgbox,.kthumbbox{display:grid;place-items:center;border:1px dashed var(--line);border-radius:12px;background:var(--bg);cursor:pointer;overflow:hidden;color:var(--mu);padding:0}
+.kimgbox{width:100%;max-width:240px;aspect-ratio:16/10}.kthumbbox{width:112px;height:112px}.kimgbox img,.kthumbbox img{width:100%;height:100%;object-fit:cover}.kimgbox:hover,.kthumbbox:hover{border-color:var(--ac)}
+.kact{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin:6px 0 10px}.khint{color:var(--mu);font-size:.85rem;margin:6px 0 0}
+.kov{position:fixed;inset:0;z-index:95;background:#000b;backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);display:grid;place-items:center;padding:16px;opacity:0;transition:opacity .2s}.kov.show{opacity:1}
+.kdlg{background:var(--panel);border:1px solid var(--line);border-radius:18px;width:min(500px,100%);max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow:auto;padding:18px;transform:translateY(12px);transition:transform .25s}.kov.show .kdlg{transform:none}.kdlg.wide{width:min(580px,100%)}
+.kdh{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px}.kdh b{font-size:1.15rem}
+.kpv{margin:4px auto 14px;display:grid;place-items:center;overflow:hidden;background:var(--bg);border:1px solid var(--line);color:var(--mu)}.kpv.circle{width:150px;height:150px;border-radius:50%}.kpv.rect{width:100%;aspect-ratio:16/9;border-radius:12px}.kpv img{width:100%;height:100%;object-fit:cover}
+.kdf{display:flex;justify-content:flex-end;gap:10px;margin-top:16px;flex-wrap:wrap}.kerr{color:var(--bad);font-size:.85rem;min-height:1.3em;margin-top:6px}.kdh+.kd{margin-top:-4px}
+.kvar{display:flex;gap:12px;align-items:center;width:100%;text-align:left;background:none;border:0;border-bottom:1px solid var(--line);padding:10px 4px;cursor:pointer;color:var(--tx);min-height:50px}.kvar:hover{background:#ffffff08}
+.kvar code{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:3px 9px;font-size:.85rem;flex:none}.kvar span{color:var(--mu);font-size:.88rem}
+@media(max-width:700px){
+  .k input[type=text],.k textarea,.k select,.kdlg input[type=text]{font-size:16px}
+  .kov{place-items:end center;padding:0}.kdlg{width:100%!important;border-radius:18px 18px 0 0;padding-bottom:calc(18px + env(safe-area-inset-bottom));max-height:90vh;max-height:90dvh}
+  .kemb{padding:8px 12px 16px}.kbr{grid-template-columns:minmax(0,1fr) 96px}
+}
+@media(max-width:380px){.kib{width:40px;height:40px}.ktabs button{padding:0 12px}.ktools{gap:6px}}
+@media(max-width:600px){.krow{flex-wrap:wrap}.ktabs{flex:1 1 100%}.ktools{margin-left:auto}}
+@media(max-width:700px){.kcrumb,.ksep{display:none}}
 </style></head><body>
 <div class="prog" id="prog"></div><div class="scrim" id="scrim"></div><div class="boot" id="boot"></div>
 <section id="login" class="login hide"><div class="hang"><i class="cord"></i><img class="medal" src="/spidey-pfp.jpg?v=2" alt="Spidey"></div><div class="in">
@@ -1041,14 +1153,7 @@ function renderSpecial(k){
     list(L.map((u,i)=>{const r=el('div','row'),d=el('div'),m=el('div','meter');d.append(el('label','',`${i+1}. ${u.name}`),el('small','',`Level ${u.level}, ${u.xp} XP, ${u.messages} messages`));m.append(el('i'));m.firstChild.style.setProperty('--w',(u.xp/top*100)+'%');m.style.setProperty('--w','0');r.append(d,m);return r}),'Nobody has earned XP yet. Turn on Leveling and start chatting.');
   }else if(k==='cases'){renderCases();}else if(k==='otickets'){
     list((OV.tickets||[]).map(t=>{const r=el('div','row'),d=el('div');d.append(el('label','',`#${t.number} ${t.subject}`),el('small','',`Opened by ${t.opener} on ${when(t.created)}. ${t.claimed?'Claimed by '+t.claimed:'Not claimed yet'}`));r.append(d);return r}),'No open tickets.');
-  }else if(k==='panels'){renderPanels();}else if(k==='messages'){renderMessages();}else if(k==='giveaways'){renderGiveaways();}else if(k==='rroles'){renderRR();}else if(k==='autoreact'){renderAR();}else if(k==='inviters'){renderInviters();}else if(k==='announce'){
-    const box=el('div','sec'),mk=(l,h,c)=>{const r=el('div','row col'),d=el('div');d.append(el('label','',l),el('small','',h));r.append(d,c);box.append(r);return c};
-    const ch=el('select');META.channels.forEach(o=>ch.add(new Option('#'+o.name,o.id)));mk('Channel','Where Spidey posts it',ch);
-    const ti=el('input');ti.type='text';ti.maxLength=200;ti.placeholder='Announcement';mk('Title','',ti);
-    const ms=el('textarea');ms.maxLength=3500;mk('Message','Posted as a Spidey-styled embed',ms);
-    const go=el('button','btn pri','Send message');go.style.margin='14px 0';box.append(go);f.append(box);const out=el('div','toast');out.style.marginTop='12px';f.append(out);
-    go.onclick=async()=>{try{await api(`/api/guilds/${G.id}/announce`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({channel:ch.value,title:ti.value,message:ms.value})});out.className='toast';out.textContent='Sent.';ms.value=''}catch(e){out.className='toast bad';out.textContent=e.message}};
-  }
+  }else if(k==='panels'){renderPanels();}else if(k==='messages'){renderMessages();}else if(k==='giveaways'){renderGiveaways();}else if(k==='rroles'){renderRR();}else if(k==='autoreact'){renderAR();}else if(k==='inviters'){renderInviters();}else if(k==='welcome'){msgStudio('join')}else if(k==='leave'){msgStudio('leave')}else if(k==='announce'){msgStudio('announce')}
 }
 function showGreet(){const g=$('greet');if(TAB!=='overview'){g.classList.add('hide');return}
   g.classList.remove('hide');g.innerHTML='';const t=el('h1');t.append('Welcome, ',el('span','nm',window.ME||'there'),' ',el('span','wave','\ud83d\udc4b'));
@@ -1081,7 +1186,8 @@ function field(sec,f){
 function render(){
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on',b.dataset.k===TAB));moveGlide();
   $('secDesc').textContent=DESC[TAB]||'';$('mtitle').textContent=TITLES[TAB]||'';showGreet();
-  if(!SCHEMA.some(x=>x.id===TAB))return renderSpecial(TAB);
+  $('secTitle').style.display='';$('secDesc').style.display='';
+  if(TAB==='welcome'||TAB==='leave'||!SCHEMA.some(x=>x.id===TAB))return renderSpecial(TAB);
   const s=SCHEMA.find(x=>x.id===TAB);$('secTitle').textContent=TITLES[TAB]||s.title;$('fields').innerHTML='';
   let grp=null,box=null;
   s.fields.forEach(f=>{if(box===null||f.group!==grp){grp=f.group;if(grp){const h=document.createElement('h3');h.textContent=grp;$('fields').append(h)}box=document.createElement('div');box.className='sec';$('fields').append(box)}
@@ -1479,6 +1585,176 @@ let tx=0,ty=0;addEventListener('touchstart',e=>{tx=e.touches[0].clientX;ty=e.tou
 addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-tx,dy=e.changedTouches[0].clientY-ty;if(dx<-60&&Math.abs(dy)<Math.abs(dx)*.6)drawer(false)},{passive:true});
 const setHH=()=>{const hd=document.querySelector('#app>header');if(hd)document.documentElement.style.setProperty('--hh',hd.offsetHeight+'px')};
 addEventListener('resize',setHH);new ResizeObserver(setHH).observe(document.querySelector('#app>header'));
+/* ===== Welcome / Leave messages / Announce: one shared Koya-style editor ===== */
+const MSG={
+ join:{ph:[['{user}','Mentions the new member'],['{user.name}','Their username'],['{name}','Their display name'],['{server}','Server name'],['{count}','Member count'],['{user.avatar}','Their avatar link (for icons, thumbnail, image)'],['{server.icon}','Server icon link (for icons, thumbnail, image)'],['{line}','A random Spidey line']]},
+ leave:{ph:[['{user.name}','Their username'],['{name}','Their display name'],['{server}','Server name'],['{count}','Member count'],['{user.avatar}','Their avatar link (for icons, thumbnail, image)'],['{server.icon}','Server icon link (for icons, thumbnail, image)']]},
+ announce:{ph:[['{server}','Server name'],['{count}','Member count'],['{server.icon}','Server icon link (for icons, thumbnail, image)']]}
+};
+const KCOL=['#2ecc71','#3498db','#9b59b6','#e91e63','#f1c40f','#e67e22','#e74c3c','#95a5a6','#607d8b','#ffffff'];
+const KICO={
+ img:'<svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="1.8"/><path d="M4 18l5-5 4 4 3-3 4 4"/></svg>',
+ link:'<svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg>',
+ eye:'<svg viewBox="0 0 24 24"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+ vars:'<svg viewBox="0 0 24 24"><path d="M8 4C6 4 5 5 5 7v2c0 1.5-1 3-2 3 1 0 2 1.5 2 3v2c0 2 1 3 3 3M16 4c2 0 3 1 3 3v2c0 1.5 1 3 2 3-1 0-2 1.5-2 3v2c0 2-1 3-3 3"/></svg>',
+ send:'<svg viewBox="0 0 24 24"><path d="M21 3L10 14M21 3l-7 18-4-7-7-4 18-7z"/></svg>',
+ trash:'<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
+ plus:'<svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>',
+ x:'<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>'
+};
+const kic=n=>{const s=el('span','kic');s.innerHTML=KICO[n];return s};
+const kib=(n,title,fn,cls)=>{const b=el('button','kib'+(cls?' '+cls:''));b.type='button';b.title=title;b.setAttribute('aria-label',title);b.append(kic(n));if(fn)b.onclick=fn;return b};
+const kEmbed=()=>({title:'',title_url:'',description:'',color:'#e0222d',author:'',author_url:'',author_icon:'',footer:'',footer_icon:'',timestamp:false,image:'',thumbnail:'',fields:[]});
+const kl=t=>el('div','kfl',t);
+const kinp=(o,k,max,ph)=>{const e=fT(o,k,max);e.placeholder=ph;e.setAttribute('aria-label',ph);return e};
+const kchk=(o,k,text)=>{const l=el('label','kchk'),i=el('input');i.type='checkbox';i.checked=!!o[k];i.onchange=()=>{o[k]=i.checked};const b=el('span','bx');b.innerHTML='<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';l.append(i,b,text);return l};
+const mdEsc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const mdFmt=s=>mdEsc(s).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/(^|[^*])\*([^*\s][^*]*?)\*(?!\*)/g,'$1<i>$2</i>').replace(/`([^`\n]+)`/g,'<code>$1</code>').replace(/~~(.+?)~~/g,'<s>$1</s>').replace(/@[\w.]+/g,m=>'<span class="mn">'+m+'</span>');
+function msgSample(){
+  const me=window.ME||'Peter',av=$('uav').src,ic=G.icon?`https://cdn.discordapp.com/icons/${G.id}/${G.icon}.png?size=128`:av;
+  return [['{user.name}',me.toLowerCase().replace(/\s+/g,'')],['{user.id}','123456789012345678'],['{user.avatar}',av],['{server.icon}',ic],['{user}','@'+me],['{name}',me],['{server}',G.name],['{count}',String(OV.stats.members)],['{line}','A new friend got caught in the web! \ud83d\udd78\ufe0f']];
+}
+const ksub=s=>msgSample().reduce((a,[k,v])=>a.split(k).join(v),s||'');
+function msgPreview(pv,m,sample){
+  const sub=s=>sample.reduce((a,[k,v])=>a.split(k).join(v),s||''),rich=(c,x)=>{const d=el('div',c);d.innerHTML=mdFmt(sub(x));return d},ok=u=>sub(u).startsWith('https://');
+  pv.innerHTML='';const hd=el('div','dhead'),im=el('img');im.src='/spidey-pfp.jpg?v=2';im.alt='';hd.append(im,el('b','','Spidey'),el('span','tag','BOT'));pv.append(hd);
+  if(m.content)pv.append(rich('dtext',m.content));
+  m.embeds.forEach(e=>{
+    const bx=el('div','emb'),bd=el('div','embody'),ft=[];let any=false;bx.style.borderLeftColor=e.color;
+    if(e.author||ok(e.author_icon)){const a=el('div','eau');if(ok(e.author_icon)){const i=el('img','eai');i.src=sub(e.author_icon);i.alt='';a.append(i)}a.append(sub(e.author));bd.append(a);any=true}
+    if(e.title){const t=rich('eti',e.title);if(ok(e.title_url))t.classList.add('lnk');bd.append(t);any=true}
+    if(e.description){bd.append(rich('ede',e.description));any=true}
+    if(e.fields.length){const g=el('div','efs');e.fields.forEach(x=>{const c=el('div','ef'+(x.inline?' in':'')),b=el('b','',sub(x.name)||'Name');c.append(b,rich('',x.value||'Value'));g.append(c)});bd.append(g);any=true}
+    if(ok(e.image)){const i=el('img','eim');i.src=sub(e.image);i.alt='';bd.append(i)}
+    if(e.footer)ft.push(sub(e.footer));if(e.timestamp)ft.push('Today at '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}));
+    if(ft.length||ok(e.footer_icon)){const x=el('div','eft');if(ok(e.footer_icon)){const i=el('img','efi');i.src=sub(e.footer_icon);i.alt='';x.append(i)}x.append(ft.join(' \u2022 '));bd.append(x)}
+    bx.append(bd);if(ok(e.thumbnail)){const t=el('img','eth');t.src=sub(e.thumbnail);t.alt='';bx.append(t)}
+    if(any||ok(e.image)||ok(e.thumbnail))pv.append(bx)});
+  if(m.buttons.length){const r=el('div','dbtns');m.buttons.forEach(x=>r.append(el('span','dbtn secondary',`${x.emoji||''} ${x.label||'Button'} \u2197`.trim())));pv.append(r)}
+}
+function kModal(build){
+  const ov=el('div','kov'),box=el('div','kdlg');box.setAttribute('role','dialog');box.setAttribute('aria-modal','true');ov.append(box);document.body.append(ov);
+  const esc=e=>{if(e.key==='Escape')close()},close=()=>{ov.remove();document.removeEventListener('keydown',esc)};
+  document.addEventListener('keydown',esc);ov.addEventListener('mousedown',e=>{if(e.target===ov)close()});
+  build(box,close);requestAnimationFrame(()=>ov.classList.add('show'));return close;
+}
+const kdh=(t,close)=>{const h=el('div','kdh');h.append(el('b','',t),kib('x','Close',close));return h};
+function kUrl({title,help,value,shape,tokens,onSave}){
+  kModal((box,close)=>{
+    box.append(kdh(title,close));
+    const pv=el('div','kpv '+(shape==='circle'?'circle':'rect')),im=el('img'),lab=el('span','','Preview');im.alt='';pv.append(lab);
+    box.append(pv,el('p','kd',help+(tokens?' Use an https:// link, or {user.avatar} / {server.icon}.':' Use an https:// link.')));
+    const inp=el('input');inp.type='text';inp.placeholder='Insert URL here...';inp.value=value||'';inp.maxLength=500;inp.setAttribute('aria-label',title+' link');inp.inputMode='url';
+    const err=el('div','kerr');err.setAttribute('aria-live','polite');
+    const show=()=>{const u=ksub(inp.value);pv.innerHTML='';if(u.startsWith('https://')){im.src=u;pv.append(im)}else pv.append(lab);err.textContent=''};
+    inp.addEventListener('input',show);show();
+    const cancel=el('button','btn ghost','Cancel'),clear=el('button','btn ghost','Clear'),save=el('button','btn pri','Save');[cancel,clear,save].forEach(b=>b.type='button');
+    cancel.onclick=close;clear.onclick=()=>{onSave('');close()};clear.classList.toggle('hide',!value);
+    const go=()=>{const v=inp.value.trim();if(v&&!((v.startsWith('https://')&&!/\s/.test(v))||(tokens&&(v==='{user.avatar}'||v==='{server.icon}')))){err.textContent='That link has to start with https://'+(tokens?' (or be {user.avatar} / {server.icon})':'');return}onSave(v);close()};
+    save.onclick=go;inp.addEventListener('keydown',e=>{if(e.key==='Enter')go()});
+    const df=el('div','kdf');df.append(cancel,clear,save);box.append(inp,err,df);setTimeout(()=>inp.focus(),80);
+  });
+}
+async function msgStudio(kind){
+  CTL=null;PREV=null;touch();const mytab=TAB,f=$('fields'),M=MSG[kind];
+  $('secTitle').style.display='none';$('secDesc').style.display='none';f.innerHTML='';skel(f);let S;
+  if(kind==='announce')S={enabled:true,channel:'',dm:false,custom:true,notes:[],message:{content:'',embeds:[Object.assign(kEmbed(),{title:'\ud83d\udce3 Announcement',description:'Write your announcement here.'})],buttons:[]}};
+  else try{S=await api(`/api/guilds/${G.id}/msgs/${kind}`)}catch(e){if(TAB===mytab){f.innerHTML='';f.append(el('div','empty',e.message))}return}
+  if(TAB!==mytab)return;f.innerHTML='';
+  const msg=S.message;msg.buttons=msg.buttons||[];
+  msg.embeds=(msg.embeds||[]).map(e=>Object.assign(kEmbed(),e,{timestamp:!!e.timestamp,color:/^#[0-9a-f]{6}$/i.test(e.color||'')?e.color.toLowerCase():'#e0222d',fields:(e.fields||[]).map(x=>({inline:false,...x}))}));
+  let stash=null,tab='msg',last=null,ta=null,ew=null,ecb=null,prevBox=null,tmr=null;
+  const NAME={join:'Join message',leave:'Leave message',announce:'Announcement'}[kind],CRUMB={join:'Welcome',leave:'Leave messages',announce:'Announce'}[kind];
+  const root=el('div','k'),grid=el('div','kgrid'),L=el('div','kmain'),R=el('div','kside'),side=el('div','dmsg');
+  R.append(el('h3','','Live preview'),side);grid.append(L,R);root.append(grid);f.append(root);
+  const hd=el('div','khead'),tt=el('h2','ktitle');tt.append(el('span','kcrumb',CRUMB),el('span','ksep','\u203a'),el('span','',NAME));hd.append(tt);
+  if(kind!=='announce'){const sw=fW(S,'enabled'),t=kind==='join'?'Send welcome messages':'Send goodbye messages';sw.title=t;sw.firstChild.setAttribute('aria-label',t);hd.append(sw)}
+  L.append(hd);
+  (S.notes||[]).forEach(n=>L.append(el('div','note warn',n)));
+  const classic=el('div','note','This is the classic message this server uses now. Change anything and press Save to switch to this editor. Nothing is lost.');
+  if(kind!=='announce'&&!S.custom)L.append(classic);
+  /* channel */
+  const ksec=(label,desc,req)=>{const s=el('section','ksec'),l=el('div','kl',label);if(req)l.append(' ',el('span','kreq','*'));s.append(l);if(desc)s.append(el('p','kd',desc));return s};
+  const s1=ksec('Channel','Select the channel where '+(kind==='announce'?'the announcement is':'messages are')+' going to be sent.',kind!=='join');
+  const chs=fS(S,'channel',optsOf(META.channels,kind==='join'?'No channel (DMs only)':'Choose a channel','#'));chs.setAttribute('aria-label','Channel');s1.append(chs);
+  if(kind==='join')s1.append(kchk(S,'dm','Also send the message in user DMs'));
+  L.append(s1);
+  /* message */
+  const s2=ksec('Message','Set the custom message that will be sent.'),bar=el('div','krow'),tabs=el('div','ktabs'),tools=el('div','ktools');
+  const tb1=el('button','on','Message & Embeds'),tb2=el('button','','Link buttons');[tb1,tb2].forEach(b=>b.type='button');tabs.append(tb1,tb2);
+  tools.append(kib('eye','Preview',openPrev,'keye'),kib('vars','Placeholders',openVars));if(kind!=='announce')tools.append(kib('send','Send test',doTest));
+  bar.append(tabs,tools);const toast=el('div','ktoast');toast.setAttribute('aria-live','polite');const body=el('div');s2.append(bar,toast,body);L.append(s2);
+  const setTab=t=>{tab=t;tb1.classList.toggle('on',t==='msg');tb2.classList.toggle('on',t==='btn');body.innerHTML='';t==='msg'?drawMsg():drawBtns()};
+  tb1.onclick=()=>setTab('msg');tb2.onclick=()=>setTab('btn');
+  L.addEventListener('focusin',e=>{if(e.target.matches('input[type=text],textarea'))last=e.target});
+  function say(t,bad){toast.className='ktoast'+(bad?' bad':'');toast.textContent=t;clearTimeout(tmr);tmr=setTimeout(()=>{toast.textContent=''},6000)}
+  function ins(t){const x=last&&last.isConnected?last:ta;if(!x)return;const a=x.selectionStart==null?x.value.length:x.selectionStart,z=x.selectionEnd==null?a:x.selectionEnd;
+    x.value=x.value.slice(0,a)+t+x.value.slice(z);x.setSelectionRange(a+t.length,a+t.length);x.focus();x.dispatchEvent(new Event('input',{bubbles:true}))}
+  function openVars(){kModal((box,close)=>{box.append(kdh('Placeholders',close),el('p','kd','Tap one to add it where you were typing. They are filled in when the message is sent.'));
+    M.ph.forEach(([k,d])=>{const b=el('button','kvar');b.type='button';b.append(el('code','',k),el('span','',d));b.onclick=()=>{close();ins(k)};box.append(b)})})}
+  function openPrev(){kModal((box,close)=>{box.classList.add('wide');const pv=el('div','dmsg');box.append(kdh('Preview',close),pv);prevBox=pv;msgPreview(pv,msg,msgSample())})}
+  function urlBtn(icon,title,o,key,help,shape,tokens){const b=kib(icon,title);b.classList.toggle('on',!!o[key]);
+    b.onclick=()=>kUrl({title,help,value:o[key],shape,tokens,onSave:v=>{o[key]=v;b.classList.toggle('on',!!v);touch()}});return b}
+  function imgBox(o,key,title,help,shape,cls){const b=el('button',cls);b.type='button';b.setAttribute('aria-label',title);
+    const paint=()=>{b.innerHTML='';const u=ksub(o[key]);if(u.startsWith('https://')){const i=el('img');i.alt='';i.src=u;b.append(i)}else b.append(kic('img'))};
+    b.onclick=()=>kUrl({title,help,value:o[key],shape,tokens:true,onSave:v=>{o[key]=v;paint();touch()}});paint();return b}
+  function drawMsg(){
+    const card=el('div','kmc'),mh=el('div','kmh'),av=el('img');av.src='/spidey-pfp.jpg?v=2';av.alt='';
+    mh.append(av,el('b','','Spidey'),el('span','tag','\u2713 APP'),el('small','','Today at '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})));
+    ta=fA(msg,'content');ta.className='kmt';ta.maxLength=2000;ta.placeholder='Write the message text here. Optional if you add an embed.';ta.setAttribute('aria-label','Message text');
+    const ct=el('div','kcnt'),upd=()=>{ct.textContent=`${ta.value.length} / 2000`};ta.addEventListener('input',upd);upd();card.append(mh,ta,ct);
+    const tg=el('label','ktog'),w=el('div','sw');w.innerHTML='<input type="checkbox" role="switch" aria-label="Send an embed with this message"><span></span>';ecb=w.firstChild;ecb.checked=msg.embeds.length>0;
+    ecb.onchange=()=>{if(ecb.checked){msg.embeds=stash&&stash.length?stash:[kEmbed()];stash=null}else{stash=msg.embeds;msg.embeds=[]}drawEmb();touch()};
+    tg.append(w,'Send an embed with this message');ew=el('div');body.append(card,tg,ew);drawEmb();
+  }
+  function drawEmb(){ew.innerHTML='';msg.embeds.forEach((e,i)=>ew.append(embedUI(e,i)));
+    if(msg.embeds.length&&msg.embeds.length<3){const ad=el('button','kadd');ad.type='button';ad.append(kic('plus'),'Add another embed');ad.onclick=()=>{msg.embeds.push(kEmbed());drawEmb();touch()};ew.append(ad)}}
+  function embedUI(e,i){
+    const w=el('div','kemb'),bar=el('div','kebar'),g=el('div','kegrid'),bd=el('div','kebody'),th=el('div','kethumb');w.style.setProperty('--ec',e.color);
+    bar.append(el('b','','Embed '+(i+1)),kib('trash','Remove this embed',()=>{msg.embeds.splice(i,1);if(!msg.embeds.length){stash=null;ecb.checked=false}drawEmb();touch()},'danger'));
+    bd.append(kl('Color'));const cr=el('div','kcolor'),sw=el('input'),dots=el('div','kdots');sw.type='color';sw.className='kcsw';sw.setAttribute('aria-label','Custom color');
+    const setC=c=>{e.color=c;sw.value=c;w.style.setProperty('--ec',c);dots.querySelectorAll('.kdot').forEach(d=>d.classList.toggle('on',d.dataset.c===c))};
+    KCOL.forEach(c=>{const d=el('button','kdot');d.type='button';d.dataset.c=c;d.style.background=c;d.title=c;d.setAttribute('aria-label','Color '+c);d.onclick=()=>{setC(c);touch()};dots.append(d)});
+    sw.oninput=()=>setC(sw.value);cr.append(sw,dots);bd.append(cr);setC(e.color);
+    bd.append(kl('Author'));const ar=el('div','kir');ar.append(urlBtn('img','Author icon',e,'author_icon','Set the author icon.','circle',true),urlBtn('link','Author link',e,'author_url','Make the author name a link.','rect',false),kinp(e,'author',256,'Name of the author'));bd.append(ar);
+    bd.append(kl('Title'));const tr=el('div','kir');tr.append(urlBtn('link','Title link',e,'title_url','Make the title a link.','rect',false),kinp(e,'title',256,'Title of the embed'));bd.append(tr);
+    bd.append(kl('Description'));const dw=el('div','kdesc'),dt=fA(e,'description'),dc=el('div','kcnt');dt.maxLength=4096;dt.placeholder='Description of the embed';dt.setAttribute('aria-label','Embed description');
+    const du=()=>{dc.textContent=`${dt.value.length} / 4096`};dt.addEventListener('input',du);du();dw.append(dt,dc);bd.append(dw);
+    bd.append(kl('Fields'));const fw=el('div');bd.append(fw);
+    const drawF=()=>{fw.innerHTML='';
+      e.fields.forEach((x,k)=>{const c=el('div','kfld'),h=el('div','kfh'),n=kinp(x,'name',256,'Field name'),v=fA(x,'value'),il=el('label','kinl'),s2=fW(x,'inline');
+        v.placeholder='Field value';v.maxLength=1024;v.style.minHeight='64px';v.setAttribute('aria-label','Field value');s2.firstChild.setAttribute('aria-label','Show side by side');il.append(s2,'Side by side');
+        h.append(il,kib('trash','Remove field',()=>{e.fields.splice(k,1);drawF();touch()},'danger'));c.append(n,v,h);fw.append(c)});
+      if(e.fields.length<25){const ad=el('button','kadd');ad.type='button';ad.append(kic('plus'),'Add Field');ad.onclick=()=>{e.fields.push({name:'',value:'',inline:false});drawF();touch()};fw.append(ad)}};drawF();
+    bd.append(kl('Image'),imgBox(e,'image','Embed image','Set the embed image.','rect','kimgbox'));
+    bd.append(kl('Footer'));const fr=el('div','kfoot'),ts=el('select','kts');ts.append(new Option('No timestamp','0'),new Option('Add timestamp','1'));ts.value=e.timestamp?'1':'0';ts.setAttribute('aria-label','Timestamp');ts.onchange=()=>{e.timestamp=ts.value==='1'};
+    fr.append(urlBtn('img','Footer icon',e,'footer_icon','Set the footer icon.','circle',true),kinp(e,'footer',2048,'Footer text'),ts);bd.append(fr);
+    th.append(kl('Thumbnail'),imgBox(e,'thumbnail','Embed thumbnail','Set the embed thumbnail.','circle','kthumbbox'));g.append(bd,th);w.append(bar,g);return w;
+  }
+  function drawBtns(){
+    body.append(el('p','kd','Up to 5 buttons that open a link, shown under the message.'));
+    msg.buttons.forEach((x,i)=>{const c=el('div','kfld'),r=el('div','kbr'),la=kinp(x,'label',80,'Button text'),em=kinp(x,'emoji',32,'Emoji'),ur=kinp(x,'url',500,'https://...');ur.inputMode='url';
+      r.append(la,em);c.append(r,ur,kib('trash','Remove button',()=>{msg.buttons.splice(i,1);setTab('btn');touch()},'danger'));body.append(c)});
+    if(msg.buttons.length<5){const ad=el('button','kadd');ad.type='button';ad.append(kic('plus'),'Add button');ad.onclick=()=>{msg.buttons.push({label:'',url:'',emoji:''});setTab('btn');touch()};body.append(ad)}
+  }
+  const pick=()=>({enabled:S.enabled,channel:S.channel,dm:S.dm,message:msg}),acts=el('div','kact'),out=el('div','ktoast');
+  if(kind==='announce'){
+    const go=el('button','btn pri','Send announcement');go.type='button';acts.append(go,out);L.append(acts);
+    go.onclick=async()=>{out.className='ktoast';out.textContent='Sending...';
+      try{if(!S.channel)throw new Error('Choose a channel first');await api(`/api/guilds/${G.id}/send`,PJ('POST',{channel:S.channel,message:msg}));out.textContent='Sent!'}
+      catch(e){out.className='ktoast bad';out.textContent=e.message}};
+  }else{
+    let snap=JSON.stringify(pick());const rv=el('button','btn ghost','Use classic style');rv.type='button';rv.classList.toggle('hide',!S.custom);acts.append(rv,out);L.append(acts);
+    L.append(el('p','khint','Press the send icon above to post a test exactly as it is now (even before saving), using your account as the member.'));
+    CTL={dirty:()=>JSON.stringify(pick())!==snap,reset:()=>msgStudio(kind),
+      save:async()=>{await api(`/api/guilds/${G.id}/msgs/${kind}`,PJ('PUT',pick()));snap=JSON.stringify(pick());S.custom=true;rv.classList.remove('hide');classic.remove()}};
+    rv.onclick=async()=>{if(!confirm('Go back to the classic Spidey message? The design you made here is removed and the old settings are used again.'))return;
+      try{await api(`/api/guilds/${G.id}/msgs/${kind}`,{method:'DELETE'});msgStudio(kind)}catch(e){out.className='ktoast bad';out.textContent=e.message}};
+  }
+  async function doTest(){say('Sending...');try{const r=await api(`/api/guilds/${G.id}/msgs/${kind}/test`,PJ('POST',pick()));say(r.where)}catch(e){say(e.message,1)}}
+  PREV=()=>{msgPreview(side,msg,msgSample());if(prevBox&&prevBox.isConnected)msgPreview(prevBox,msg,msgSample())};
+  setTab('msg');touch();
+}
 showBoot('Waking Spidey up');init0().catch(()=>{}).finally(()=>setTimeout(hideBoot,300));
 </script></body></html>
 '''
